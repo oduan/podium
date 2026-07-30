@@ -1,0 +1,23 @@
+{
+  "name": "Podium · 智能编码工作区",
+  "short_name": "Podium",
+  "description": "面向 pi coding agent 的自托管网页工作区",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#08090a",
+  "theme_color": "#5e6ad2",
+  "icons": [
+    {
+      "src": "/icons/podium-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/podium-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import type { SVGProps } from "react";
+import type { ImgHTMLAttributes, SVGProps } from "react";
 
 type IconProps = SVGProps<SVGSVGElement>;
 
@@ -12,11 +12,18 @@ function iconProps(props: IconProps): IconProps {
   };
 }
 
-export function PodiumIcon(props: IconProps) {
+type PodiumIconProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "alt" | "src">;
+
+export function PodiumIcon({ className = "", ...props }: PodiumIconProps) {
   return (
-    <svg {...iconProps(props)}>
-      <path d="M4 15.5V9.25M10 15.5V4.5M16 15.5V7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-    </svg>
+    <img
+      {...props}
+      src="/icons/podium-icon-192.png"
+      alt=""
+      aria-hidden="true"
+      draggable="false"
+      className={`icon podium-icon${className ? ` ${className}` : ""}`}
+    />
   );
 }
 

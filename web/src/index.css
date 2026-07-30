@@ -130,6 +130,15 @@ svg {
   flex: 0 0 auto;
 }
 
+.podium-icon {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  object-fit: cover;
+  user-select: none;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -278,6 +287,7 @@ html[data-theme="light"] .theme-icon-moon {
   height: 28px;
   display: grid;
   place-items: center;
+  overflow: hidden;
   color: var(--accent-on);
   background: var(--accent);
   border-radius: var(--radius-sm);
@@ -632,6 +642,7 @@ html[data-theme="light"] .theme-icon-moon {
   height: 22px;
   display: grid;
   place-items: center;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 50%;
   color: var(--muted);
@@ -806,6 +817,7 @@ html[data-theme="light"] .theme-icon-moon {
   height: 34px;
   display: grid;
   place-items: center;
+  overflow: hidden;
   margin: 0 auto 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);

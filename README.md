@@ -1,162 +1,173 @@
-# Podium
+<p align="center">
+  <img src="web/public/icons/podium-icon-192.png" width="112" height="112" alt="Podium icon">
+</p>
 
-A self-hosted web console for the [pi coding agent](https://pi.dev/). Podium lets
-you open a folder in the browser, chat with the agent, and watch it edit files —
-much like a hosted coding-agent workspace, but running on your own machine.
+<h1 align="center">Podium</h1>
 
-Each Podium *session* maps to one pi Session (a JSONL transcript) plus a working
-directory. Podium does not store its own conversation history; it drives pi over
-its RPC protocol and lets pi own persistence under `~/.pi/agent/sessions/`.
+<p align="center">
+  A self-hosted web workspace for the <a href="https://pi.dev/">pi coding agent</a>.
+</p>
 
-```
-Browser
-   │  REST (JSON) + WebSocket, Bearer-token auth
-   ▼
-podium executable (Go backend + embedded React SPA, 127.0.0.1:8000)
-   │  one child process per active session, stdin/stdout JSONL
-   ▼
-pi --mode rpc   (cwd = the session working directory)
-```
+<p align="center">
+  <a href="https://github.com/oduan/podium/actions/workflows/release.yml"><img src="https://github.com/oduan/podium/actions/workflows/release.yml/badge.svg" alt="Release workflow"></a>
+  <a href="https://github.com/oduan/podium/releases/latest"><img src="https://img.shields.io/github/v/release/oduan/podium" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-5e6ad2" alt="Supported platforms">
+</p>
+
+Podium runs alongside pi on your own machine. It gives you a browser-based conversation workspace, session navigation, file browsing, live tool output, model selection, and reasoning controls while pi continues to own agent execution and conversation persistence.
+
+## Highlights
+
+- One self-contained executable with the React interface embedded in the Go server.
+- Native releases for Windows, Linux, and macOS on both amd64 and arm64.
+- Real-time conversation and tool output over WebSocket.
+- Sessions map directly to pi session files and working directories.
+- No hosted account or external Podium service is required.
+- Light and dark themes with a responsive desktop/mobile interface.
 
 ## Requirements
 
-- Runtime: the `pi` CLI must be installed and available from `PATH`:
-
-  ```sh
-  npm install -g @earendil-works/pi-coding-agent@0.82.1   # tested RPC contract
-  ```
-
-- Build only: **Go 1.25.12+** and **Node 20.19+ or 22.12+ / npm**.
-
-## Build
-
-Build the frontend first, then compile it into the Go executable:
+Podium does not bundle pi. Install pi first and ensure the `pi` command is available in `PATH`.
 
 ```sh
-cd web
-npm ci
-npm run build          # outputs to server/internal/webui/dist
-
-cd ../server
-go build -trimpath -o podium ./cmd/podium
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 ```
 
-The release artifact is one file: `server/podium` (`server/podium.exe` on
-Windows). Node, npm, and loose web assets are not needed at runtime.
+Linux and macOS users can alternatively use pi's official installer:
+
+```sh
+curl -fsSL https://pi.dev/install.sh | sh
+```
+
+See the [pi quick start](https://pi.dev/docs/latest/quickstart) for current requirements and installation details.
+
+> [!IMPORTANT]
+> Provider authentication and model configuration must be completed in pi itself, not in Podium. Run `pi`, use `/login` to authenticate a provider, and use `/model` to select or verify a model. Custom providers and local models belong in `~/.pi/agent/models.json`; see the [pi model documentation](https://pi.dev/docs/latest/models). Podium only displays models that the current pi installation reports as available.
+
+## Install Podium
+
+The installers download the latest GitHub Release for the current operating system and CPU architecture, verify its SHA-256 checksum, and install the `podium` executable.
+
+### Linux and macOS
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/oduan/podium/main/scripts/install.sh | sh
+```
+
+The default install directory is `~/.local/bin`. If it is not already in `PATH`, the installer prints the required next step.
+
+### Windows
+
+Run the following in PowerShell or Command Prompt:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/oduan/podium/main/scripts/install.ps1 | iex"
+```
+
+The installer writes `podium.exe` to `%LOCALAPPDATA%\Podium\bin` and adds that directory to the user `PATH`. Open a new terminal after installation.
+
+To install a specific release instead of the latest one, set `PODIUM_VERSION` to a tag such as `v0.1` before running the installer. Set `PODIUM_INSTALL_DIR` to override the destination directory.
+
+Release archives can also be downloaded manually from [GitHub Releases](https://github.com/oduan/podium/releases/latest).
 
 ## Run
 
-Start the executable directly:
+Start Podium from a terminal:
 
 ```sh
-./server/podium
+podium
 ```
 
-On first start, if no token is configured, Podium generates one and prints it to
-stderr (and saves it to `~/.podium/config.json`). Open `http://127.0.0.1:8000`
-and paste the token on the login screen.
+Then open [http://127.0.0.1:8000](http://127.0.0.1:8000). On first launch, Podium generates an access token, prints it in the terminal, and saves it to `~/.podium/config.json`. Paste that token into the login page.
 
-### Development
+Re-run the same install command whenever you want to update to the latest release.
 
-Run the backend and the Vite dev server side by side; Vite proxies `/api`
-(including the WebSocket) to the Go server on port 8000:
+## How it works
 
-```sh
-# terminal 1
-cd server && go run ./cmd/podium
+Each Podium session maps to one pi session and one working directory. Podium does not duplicate pi's conversation database; it drives pi through RPC and reads the session data pi stores under `~/.pi/agent/sessions/`.
 
-# terminal 2
-cd web && npm run dev        # http://localhost:5173
+```text
+Browser
+   │  REST + WebSocket, bearer-token authentication
+   ▼
+podium executable (Go server + embedded React app)
+   │  one JSONL RPC subprocess per active session
+   ▼
+pi --mode rpc (session working directory)
 ```
 
 ## Configuration
 
-Settings are resolved with precedence **flags > env (`PODIUM_*`) > `~/.podium/config.json` > defaults**.
+Settings are resolved in this order: command-line flags, `PODIUM_*` environment variables, `~/.podium/config.json`, then defaults.
 
-| Flag | Env | Default | Description |
+| Flag | Environment variable | Default | Description |
 |---|---|---|---|
-| `--host` | `PODIUM_HOST` | `127.0.0.1` | Listen host (keep on loopback behind a proxy). |
-| `--port` | `PODIUM_PORT` | `8000` | Listen port. |
-| `--token` | `PODIUM_TOKEN` | *(generated)* | Access token required for all requests. |
-| `--data-dir` | `PODIUM_DATA_DIR` | `~/.podium` | Metadata, config, and keys directory. |
-| `--workspaces-root` | `PODIUM_WORKSPACES_ROOT` | `~/.podium/workspaces` | Where default (folder-less) sessions are created. |
-| `--pi-binary` | `PODIUM_PI_BINARY` | `pi` (from `PATH`) | Path to the pi executable. |
-| `--browse-root` | `PODIUM_BROWSE_ROOT` | user home | Root exposed to the "open folder" picker. |
+| `--host` | `PODIUM_HOST` | `127.0.0.1` | Listen address. Keep this on loopback unless Podium is protected by a reverse proxy. |
+| `--port` | `PODIUM_PORT` | `8000` | HTTP server port. |
+| `--token` | `PODIUM_TOKEN` | Generated | Bearer token required by the browser client. |
+| `--data-dir` | `PODIUM_DATA_DIR` | `~/.podium` | Podium configuration and session metadata directory. |
+| `--workspaces-root` | `PODIUM_WORKSPACES_ROOT` | `~/.podium/workspaces` | Root used for sessions without a selected folder. |
+| `--pi-binary` | `PODIUM_PI_BINARY` | `pi` | Path or command used to start pi. |
+| `--browse-root` | `PODIUM_BROWSE_ROOT` | User home | Highest directory exposed by the folder picker. |
 | `--idle-timeout` | `PODIUM_IDLE_TIMEOUT` | `15` | Minutes before an idle pi process is stopped. |
-| `--max-processes` | `PODIUM_MAX_PROCESSES` | `5` | Max concurrent pi processes, including temporary model-discovery processes. |
-| `--static-dir` | `PODIUM_STATIC_DIR` | embedded UI | Optional directory that overrides the embedded web assets. |
+| `--max-processes` | `PODIUM_MAX_PROCESSES` | `5` | Maximum number of active pi processes. |
+| `--static-dir` | `PODIUM_STATIC_DIR` | Embedded UI | Optional directory overriding the embedded web assets. |
 
-Set `PODIUM_CONFIG` to override the config-file path. Otherwise `--data-dir`
-(or `PODIUM_DATA_DIR`) also selects `<data-dir>/config.json`. When no explicit
-workspace root is configured, it follows the selected data directory.
+Set `PODIUM_CONFIG` to use a different configuration file. When `PODIUM_DATA_DIR` changes and no workspace root is explicitly configured, the default workspace root follows the selected data directory.
 
-## Authentication & API keys
+## Build from source
 
-- **Podium access** is protected by a single bearer token (single-user MVP).
-- **Provider API keys** are managed in the Settings page and stored server-side in
-  `~/.podium/keys.json`. They are injected as environment variables
-  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, …) into each pi
-  subprocess.
-- **Subscription logins** (e.g. Claude Pro via `/login`) are *not* handled in the
-  web UI. Run `pi` interactively once on the server to complete OAuth; the
-  credentials land in `~/.pi/agent/auth.json` and are inherited by every
-  subprocess automatically.
+Building requires Go 1.25.12 or newer and Node.js 20.19+, 22.12+, or 24. The pi command is only required when running the resulting application.
 
-## Deploying behind Caddy (HTTPS)
+```sh
+cd web
+npm ci
+npm run build
 
-Podium listens on loopback only; terminate TLS with a reverse proxy. WebSocket
-upgrades are proxied transparently.
-
-```caddyfile
-podium.example.com {
-    reverse_proxy 127.0.0.1:8000
-}
+cd ../server
+go test ./...
+go build -trimpath -o podium ./cmd/podium
 ```
 
-Then run Podium as a service, for example with systemd:
+The web build is written to `server/internal/webui/dist` and embedded into the Go executable. No loose frontend assets or Node.js runtime are needed after compilation.
 
-```ini
-# /etc/systemd/system/podium.service
-[Unit]
-Description=Podium (pi web console)
-After=network.target
+For development, run the backend and Vite server separately:
 
-[Service]
-ExecStart=/opt/podium/podium
-Environment=PODIUM_TOKEN=your-long-random-token
-Restart=always
-User=podium
+```sh
+# terminal 1
+cd server
+go run ./cmd/podium
 
-[Install]
-WantedBy=multi-user.target
+# terminal 2
+cd web
+npm run dev
 ```
+
+Vite serves [http://localhost:5173](http://localhost:5173) and proxies API and WebSocket traffic to Podium on port `8000`.
+
+## Releases
+
+Pushing a tag whose name starts with `v` triggers [the release workflow](.github/workflows/release.yml). It rebuilds the web interface, runs the Go tests, cross-compiles Podium, creates archives for these targets, generates `checksums.txt`, and publishes a GitHub Release:
+
+- Windows: amd64 and arm64 (`.zip`)
+- Linux: amd64 and arm64 (`.tar.gz`)
+- macOS: Intel amd64 and Apple Silicon arm64 (`.tar.gz`)
+
+## Security notes
+
+- Podium listens on `127.0.0.1` by default. Use a TLS reverse proxy and keep bearer-token authentication enabled before exposing it to a network.
+- The folder picker is restricted by `PODIUM_BROWSE_ROOT`.
+- Provider credentials are owned by pi through its auth file or environment variables; Podium does not provide a model-credential editor.
+- pi extensions and tools can execute code with the permissions of the user running Podium. Review your pi configuration before exposing the service.
 
 ## Repository layout
 
-```
+```text
 podium/
-├── server/                  # Go backend (module: podium/server)
-│   ├── cmd/podium/          # main entrypoint
-│   └── internal/
-│       ├── webui/          # frontend build embedded with go:embed
-│       ├── config/          # configuration loading
-│       ├── auth/            # bearer-token middleware
-│       ├── pirpc/           # pi RPC subprocess client (JSONL)
-│       ├── session/         # session metadata + process lifecycle
-│       ├── keys/            # provider API-key storage
-│       ├── files/           # sandboxed file tree / reader
-│       └── api/             # REST + WebSocket handlers
-└── web/                     # React frontend (Vite + TS + Tailwind)
-    └── src/
-        ├── api/             # REST + WebSocket clients
-        ├── stores/          # zustand state + chat model
-        ├── components/      # chat, files, shared UI
-        └── pages/           # login, sessions, chat, settings
+├── .github/workflows/       # tag-driven release automation
+├── scripts/                 # cross-platform installers
+├── server/                  # Go backend and embedded production UI
+│   ├── cmd/podium/          # executable entry point
+│   └── internal/            # API, auth, config, sessions, pi RPC, web assets
+└── web/                     # React + TypeScript frontend
 ```
-
-## Notes & limitations
-
-- MVP does not expose pi's session fork/tree visualization (the RPC supports it;
-  reserved for later).
-- Tool-approval prompts are rendered as passthrough modals driven by pi's
-  `extension_ui_request` events; Podium implements no approval logic of its own.

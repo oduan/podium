@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build web UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Test server
+        working-directory: server
+        run: go test ./...
+
+      - name: Build release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_dir="$GITHUB_WORKSPACE/release"
+          rm -rf "$release_dir"
+          mkdir -p "$release_dir"
+
+          targets=(
+            "windows:amd64:zip"
+            "windows:arm64:zip"
+            "linux:amd64:tar.gz"
+            "linux:arm64:tar.gz"
+            "darwin:amd64:tar.gz"
+            "darwin:arm64:tar.gz"
+          )
+
+          for target in "${targets[@]}"; do
+            IFS=: read -r goos goarch archive_format <<< "$target"
+            asset_name="podium-${goos}-${goarch}"
+            build_dir="$RUNNER_TEMP/$asset_name"
+            binary_name="podium"
+
+            if [[ "$goos" == "windows" ]]; then
+              binary_name="podium.exe"
+            fi
+
+            rm -rf "$build_dir"
+            mkdir -p "$build_dir"
+
+            (
+              cd server
+              CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+                go build -trimpath -ldflags="-s -w" -o "$build_dir/$binary_name" ./cmd/podium
+            )
+
+            if [[ "$archive_format" == "zip" ]]; then
+              (
+                cd "$build_dir"
+                zip -q "$release_dir/$asset_name.zip" "$binary_name"
+              )
+            else
+              tar -C "$build_dir" -czf "$release_dir/$asset_name.tar.gz" "$binary_name"
+            fi
+          done
+
+          (
+            cd "$release_dir"
+            sha256sum podium-* > checksums.txt
+          )
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          release/*
+          --verify-tag
+          --generate-notes
+          --title "Podium $GITHUB_REF_NAME"
