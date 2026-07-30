@@ -1,15 +1,25 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, clearToken } from "../api/client";
-import { Link, useNavigate, useParams } from "../router";
-import { useSessionStore } from "../stores/sessionStore";
-import type { Model, SessionView } from "../types";
 import { DirPicker } from "../components/DirPicker";
+import {
+  CloseIcon,
+  FolderIcon,
+  InfoIcon,
+  MenuIcon,
+  PlusIcon,
+  PodiumIcon,
+  SettingsIcon,
+  SignOutIcon,
+} from "../components/Icons";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { Toasts } from "../components/Toasts";
 import { Composer, type PendingImage } from "../components/chat/Composer";
 import { ExtensionUiModal } from "../components/chat/ExtensionUiModal";
 import { MessageStream } from "../components/chat/MessageStream";
-import { ModelPicker } from "../components/chat/ModelPicker";
-import { StatsBar } from "../components/chat/StatsBar";
+import { DraftModelPicker, ModelPicker } from "../components/chat/ModelPicker";
+import { Link, useNavigate, useParams } from "../router";
+import { useSessionStore } from "../stores/sessionStore";
+import type { Model, SessionState, SessionStats, SessionView } from "../types";
 
 function modelKey(model: Pick<Model, "provider" | "id">): string {
   return JSON.stringify([model.provider, model.id]);
@@ -24,43 +34,190 @@ function parseModelKey(value: string): Pick<Model, "provider" | "id"> | null {
   }
 }
 
-function statusColor(status: string): string {
-  if (status === "running") return "text-emerald-400";
-  if (status === "stopped" || status === "error") return "text-red-400";
-  return "text-ink-500";
+function thinkingLabel(level?: string): string {
+  const labels: Record<string, string> = {
+    off: "关闭",
+    minimal: "极简",
+    low: "低",
+    medium: "中",
+    high: "高",
+    xhigh: "极高",
+    max: "最大",
+  };
+  return level ? labels[level] ?? level : "—";
 }
 
-function PlusIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="h-4 w-4">
-      <path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-    </svg>
-  );
+function isToday(date: string): boolean {
+  const value = new Date(date);
+  if (Number.isNaN(value.getTime())) return false;
+  const now = new Date();
+  return value.getFullYear() === now.getFullYear()
+    && value.getMonth() === now.getMonth()
+    && value.getDate() === now.getDate();
 }
 
-function SettingsIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="h-4 w-4">
-      <path d="M10 7.25A2.75 2.75 0 1 0 10 12.75 2.75 2.75 0 0 0 10 7.25Z" stroke="currentColor" strokeWidth="1.4" />
-      <path d="m15.6 11.2 1.1.86-1.5 2.6-1.3-.52a6.2 6.2 0 0 1-1.7.98L12 16.5H9l-.2-1.38a6.2 6.2 0 0 1-1.7-.98l-1.3.52-1.5-2.6 1.1-.86a6.5 6.5 0 0 1 0-2.4l-1.1-.86 1.5-2.6 1.3.52a6.2 6.2 0 0 1 1.7-.98L9 3.5h3l.2 1.38a6.2 6.2 0 0 1 1.7.98l1.3-.52 1.5 2.6-1.1.86a6.5 6.5 0 0 1 0 2.4Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-    </svg>
-  );
+function shortPath(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts.slice(-2).join("\\") || path;
 }
 
-function SignOutIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="h-4 w-4">
-      <path d="M8 4H5.5A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8M12.5 6.5 16 10l-3.5 3.5M16 10H8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
+function statusPresentation({
+  pending,
+  processStatus,
+  wsStatus,
+  isStreaming,
+}: {
+  pending: boolean;
+  processStatus: string;
+  wsStatus: string;
+  isStreaming: boolean;
+}): { label: string; dot: string } {
+  if (pending) return { label: "尚未启动", dot: "" };
+  if (wsStatus === "connecting") return { label: "正在连接", dot: "connecting" };
+  if (wsStatus !== "open") return { label: "连接已断开", dot: "error" };
+  if (processStatus === "error" || processStatus === "stopped") {
+    return { label: processStatus === "error" ? "运行异常" : "已停止", dot: "error" };
+  }
+  if (isStreaming) return { label: "Agent 正在处理", dot: "live" };
+  if (processStatus === "running") return { label: "正在运行", dot: "live" };
+  return { label: "已连接", dot: "live" };
 }
 
-function FolderIcon() {
+function RuntimeStatus({
+  current,
+  state,
+  stats,
+  processStatus,
+  wsStatus,
+  isStreaming,
+  compacting,
+  queue,
+  pendingDirectory,
+  onCompact,
+  onAbort,
+}: {
+  current?: SessionView;
+  state: SessionState | null;
+  stats: SessionStats | null;
+  processStatus: string;
+  wsStatus: string;
+  isStreaming: boolean;
+  compacting: boolean;
+  queue: { steering: string[]; followUp: string[] };
+  pendingDirectory: string;
+  onCompact: () => boolean;
+  onAbort: () => boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const status = statusPresentation({
+    pending: Boolean(current?.pending),
+    processStatus,
+    wsStatus,
+    isStreaming,
+  });
+  const queued = [
+    ...queue.steering.map((text) => ({ text, kind: "当前任务调整" })),
+    ...queue.followUp.map((text) => ({ text, kind: "下一轮" })),
+  ];
+  const contextPercent = stats?.contextUsage?.percent;
+  const contextTokens = stats?.contextUsage?.tokens ?? stats?.tokens?.total;
+  const contextText = contextPercent != null
+    ? `${Math.round(contextPercent)}%${contextTokens != null ? ` · ${contextTokens.toLocaleString()} tokens` : ""}`
+    : contextTokens != null
+      ? `${contextTokens.toLocaleString()} tokens`
+      : "等待同步";
+  const directory = current?.pending ? pendingDirectory || "默认工作区" : current?.cwd || "—";
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!anchorRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
   return (
-    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="h-4 w-4 shrink-0">
-      <path d="M2.75 6.25h5l1.5 1.5h8v6.5a1.5 1.5 0 0 1-1.5 1.5h-11a1.5 1.5 0 0 1-1.5-1.5v-8Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-      <path d="M2.75 7.75v-2a1.5 1.5 0 0 1 1.5-1.5H7l1.5 2h7.25a1.5 1.5 0 0 1 1.5 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-    </svg>
+    <div className="runtime-status">
+      <span className="connection"><span className={`status-dot ${status.dot}`} />{status.label}</span>
+      <div
+        ref={anchorRef}
+        className={`runtime-info-anchor${open ? " open" : ""}`}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => {
+          if (!anchorRef.current?.contains(document.activeElement)) setOpen(false);
+        }}
+        onFocusCapture={() => setOpen(true)}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
+        }}
+      >
+        <button
+          type="button"
+          className="info-trigger"
+          aria-label="查看会话信息"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onClick={() => setOpen(true)}
+        >
+          <InfoIcon />
+        </button>
+        {open && (
+          <div className="runtime-popover" role="dialog" aria-label="会话信息">
+            <div className="runtime-popover-header">
+              <span>会话信息</span>
+              <span className="runtime-popover-state"><span className={`status-dot ${status.dot}`} />{status.label}</span>
+            </div>
+            <dl className="runtime-details">
+              <div><dt>模型</dt><dd>{state?.model?.name || (current?.pending ? "首条消息时选择" : "pi 默认模型")}</dd></div>
+              <div><dt>推理</dt><dd>{thinkingLabel(state?.thinkingLevel)}</dd></div>
+              <div><dt>工作目录</dt><dd className="mono" title={directory}>{directory}</dd></div>
+              <div><dt>上下文</dt><dd>{contextText}</dd></div>
+              {stats?.cost != null && <div><dt>费用</dt><dd>${stats.cost.toFixed(4)}</dd></div>}
+              {state?.messageCount != null && <div><dt>消息</dt><dd>{state.messageCount.toLocaleString()}</dd></div>}
+            </dl>
+
+            <section className="runtime-popover-section">
+              <div className="runtime-section-title"><span>当前队列</span><span>{queued.length}</span></div>
+              {queued.length === 0 ? (
+                <p className="queue-empty">没有等待中的消息。</p>
+              ) : (
+                <ol className="queue-list">
+                  {queued.map((item, index) => (
+                    <li className="queue-item" key={`${item.kind}-${index}`}>
+                      <span className="queue-index">{String(index + 1).padStart(2, "0")}</span>
+                      <span>{item.text}<small className="queue-kind">{item.kind}</small></span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+
+            <div className="runtime-popover-actions">
+              <button
+                type="button"
+                className="btn"
+              onClick={onCompact}
+              disabled={!current || current.pending || wsStatus !== "open" || compacting || isStreaming}
+            >
+              {compacting ? "正在整理…" : "整理上下文"}
+            </button>
+              <button type="button" className="btn btn-danger" onClick={onAbort} disabled={!isStreaming || wsStatus !== "open"}>
+                停止当前运行
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -74,12 +231,14 @@ export default function ChatPage() {
   const isStreaming = useSessionStore((store) => store.isStreaming);
   const wsStatus = useSessionStore((store) => store.wsStatus);
   const processStatus = useSessionStore((store) => store.processStatus);
+  const queue = useSessionStore((store) => store.queue);
   const state = useSessionStore((store) => store.state);
   const stats = useSessionStore((store) => store.stats);
   const compacting = useSessionStore((store) => store.compacting);
   const uiRequest = useSessionStore((store) => store.uiRequest);
   const sendPrompt = useSessionStore((store) => store.sendPrompt);
   const abort = useSessionStore((store) => store.abort);
+  const compact = useSessionStore((store) => store.compact);
   const setModel = useSessionStore((store) => store.setModel);
   const setThinkingLevel = useSessionStore((store) => store.setThinkingLevel);
   const setSessionName = useSessionStore((store) => store.setSessionName);
@@ -96,14 +255,31 @@ export default function ChatPage() {
   const [dirPickerOpen, setDirPickerOpen] = useState(false);
   const [draftModels, setDraftModels] = useState<Model[]>([]);
   const [draftModelKey, setDraftModelKey] = useState("");
+  const [draftThinkingLevel, setDraftThinkingLevel] = useState("default");
   const [draftModelLoading, setDraftModelLoading] = useState(false);
   const [draftModelError, setDraftModelError] = useState("");
   const [firstPromptError, setFirstPromptError] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
+  const [newSessionOpen, setNewSessionOpen] = useState(false);
+  const [newSessionName, setNewSessionName] = useState("");
+  const [newSessionDir, setNewSessionDir] = useState("");
+  const [newSessionModelKey, setNewSessionModelKey] = useState("");
+  const [newSessionModels, setNewSessionModels] = useState<Model[]>([]);
+  const [newSessionModelsLoading, setNewSessionModelsLoading] = useState(false);
+  const [newSessionDirPicker, setNewSessionDirPicker] = useState(false);
+  const [newSessionError, setNewSessionError] = useState("");
+
   const pendingFirstPrompt = useRef<{
     sessionId: string;
     message: string;
     images: PendingImage[];
+    thinkingLevel?: string;
   } | null>(null);
+  const pendingDefaults = useRef<{ sessionId: string; dir: string; modelKey: string } | null>(null);
+  const commandSearchRef = useRef<HTMLInputElement>(null);
+  const newSessionNameRef = useRef<HTMLInputElement>(null);
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -111,7 +287,7 @@ export default function ChatPage() {
       setSessions(result.sessions);
       setSessionsError("");
     } catch (error) {
-      setSessionsError(error instanceof Error ? error.message : "Failed to load sessions");
+      setSessionsError(error instanceof Error ? error.message : "无法加载会话");
     } finally {
       setSessionsLoaded(true);
     }
@@ -129,23 +305,27 @@ export default function ChatPage() {
 
   const current = sessions.find((session) => session.id === id);
   const currentPending = current?.pending;
+  const currentExists = Boolean(current);
 
   useEffect(() => {
-    if (!id || !sessionsLoaded || !current || currentPending) {
+    if (!id || !sessionsLoaded || !currentExists || currentPending) {
       close();
       return;
     }
     void open(id);
     return () => close();
-  }, [close, current, currentPending, id, open, sessionsLoaded]);
+  }, [close, currentExists, currentPending, id, open, sessionsLoaded]);
 
   useEffect(() => {
-    setSelectedDir("");
+    setEditingName(false);
     setDirPickerOpen(false);
     setDraftModels([]);
     setDraftModelKey("");
+    setDraftThinkingLevel("default");
     setDraftModelError("");
     setFirstPromptError("");
+    const defaults = pendingDefaults.current?.sessionId === id ? pendingDefaults.current : null;
+    setSelectedDir(defaults?.dir ?? "");
     if (!currentPending) return;
 
     let active = true;
@@ -156,11 +336,17 @@ export default function ChatPage() {
         if (!active) return;
         const models = Array.isArray(result.models) ? result.models : [];
         setDraftModels(models);
-        setDraftModelKey(models[0] ? modelKey(models[0]) : "");
+        const preferred = defaults?.modelKey;
+        setDraftModelKey(preferred && models.some((model) => modelKey(model) === preferred)
+          ? preferred
+          : models[0]
+            ? modelKey(models[0])
+            : "");
+        if (defaults) pendingDefaults.current = null;
       })
       .catch((error) => {
         if (!active) return;
-        setDraftModelError(error instanceof Error ? error.message : "Models unavailable");
+        setDraftModelError(error instanceof Error ? error.message : "无法加载模型");
       })
       .finally(() => {
         if (active) setDraftModelLoading(false);
@@ -174,38 +360,108 @@ export default function ChatPage() {
     const queued = pendingFirstPrompt.current;
     if (!queued || queued.sessionId !== id || wsStatus !== "open") return;
     pendingFirstPrompt.current = null;
+    if (queued.thinkingLevel) setThinkingLevel(queued.thinkingLevel);
     if (!sendPrompt(queued.message, queued.images)) {
-      setFirstPromptError("The session started, but the first message could not be sent.");
+      setFirstPromptError("会话已启动，但首条消息发送失败，请重试。");
     }
-  }, [id, sendPrompt, wsStatus]);
+  }, [id, sendPrompt, setThinkingLevel, wsStatus]);
+
+  useEffect(() => {
+    if (commandOpen) window.setTimeout(() => commandSearchRef.current?.focus(), 20);
+  }, [commandOpen]);
+
+  useEffect(() => {
+    if (newSessionOpen) window.setTimeout(() => newSessionNameRef.current?.focus(), 20);
+  }, [newSessionOpen]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandQuery("");
+        setCommandOpen(true);
+        return;
+      }
+      if (event.key !== "Escape") return;
+      setCommandOpen(false);
+      setNewSessionOpen(false);
+      setSidebarOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!newSessionOpen) return;
+    let active = true;
+    setNewSessionModelsLoading(true);
+    setNewSessionError("");
+    api
+      .getModels()
+      .then((result) => {
+        if (!active) return;
+        const models = Array.isArray(result.models) ? result.models : [];
+        setNewSessionModels(models);
+        setNewSessionModelKey(models[0] ? modelKey(models[0]) : "");
+      })
+      .catch((error) => {
+        if (active) setNewSessionError(error instanceof Error ? error.message : "无法加载模型");
+      })
+      .finally(() => {
+        if (active) setNewSessionModelsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [newSessionOpen]);
+
+  const closeDrawers = () => {
+    setSidebarOpen(false);
+  };
+
+  const openNewSession = () => {
+    setCommandOpen(false);
+    setNewSessionName("");
+    setNewSessionDir("");
+    setNewSessionDirPicker(false);
+    setNewSessionModelKey("");
+    setNewSessionModels([]);
+    setNewSessionError("");
+    setNewSessionOpen(true);
+  };
 
   const createSession = async () => {
     if (creating) return;
     setCreating(true);
-    setSessionsError("");
+    setNewSessionError("");
     try {
-      const created = await api.createSession({});
+      const created = await api.createSession({ name: newSessionName.trim() || undefined });
+      pendingDefaults.current = {
+        sessionId: created.id,
+        dir: newSessionDir,
+        modelKey: newSessionModelKey,
+      };
       setSessions((previous) => [created, ...previous.filter((session) => session.id !== created.id)]);
+      setNewSessionOpen(false);
+      closeDrawers();
       navigate(`/sessions/${created.id}`);
     } catch (error) {
-      setSessionsError(error instanceof Error ? error.message : "Failed to create session");
+      setNewSessionError(error instanceof Error ? error.message : "创建会话失败");
     } finally {
       setCreating(false);
     }
   };
 
   const deleteSession = async (session: SessionView) => {
-    if (deleting || !confirm("Delete this session? The pi session files stay on disk.")) return;
+    if (deleting || !window.confirm("删除这个会话？pi 会话文件仍会保留在磁盘上。")) return;
     setDeleting(session.id);
     try {
       await api.deleteSession(session.id);
       const remaining = sessions.filter((item) => item.id !== session.id);
       setSessions(remaining);
-      if (session.id === id) {
-        navigate(remaining[0] ? `/sessions/${remaining[0].id}` : "/", { replace: true });
-      }
+      if (session.id === id) navigate(remaining[0] ? `/sessions/${remaining[0].id}` : "/", { replace: true });
     } catch (error) {
-      setSessionsError(error instanceof Error ? error.message : "Failed to delete session");
+      setSessionsError(error instanceof Error ? error.message : "删除会话失败");
     } finally {
       setDeleting("");
     }
@@ -216,14 +472,17 @@ export default function ChatPage() {
     navigate("/login", { replace: true });
   };
 
-  const name = state?.sessionName || current?.name || "New session";
+  const name = state?.sessionName || current?.name || "新会话";
   const commitName = () => {
     const next = nameDraft.trim();
     if (!next || next === name) {
       setEditingName(false);
       return;
     }
-    if (setSessionName(next)) setEditingName(false);
+    if (setSessionName(next)) {
+      setSessions((previous) => previous.map((session) => session.id === id ? { ...session, name: next } : session));
+      setEditingName(false);
+    }
   };
 
   const handleSend = async (
@@ -241,135 +500,203 @@ export default function ChatPage() {
         provider: selectedModel?.provider,
         modelId: selectedModel?.id,
       });
-      pendingFirstPrompt.current = { sessionId: current.id, message, images };
-      setSessions((previous) =>
-        previous.map((session) => (session.id === prepared.id ? prepared : session)),
-      );
+      pendingFirstPrompt.current = {
+        sessionId: current.id,
+        message,
+        images,
+        thinkingLevel: draftThinkingLevel === "default" ? undefined : draftThinkingLevel,
+      };
+      setSessions((previous) => previous.map((session) => session.id === prepared.id ? prepared : session));
       return true;
     } catch (error) {
-      setFirstPromptError(error instanceof Error ? error.message : "Failed to start session");
+      setFirstPromptError(error instanceof Error ? error.message : "启动会话失败");
       return false;
     }
   };
 
-  return (
-    <div className="h-full min-w-[760px] overflow-hidden bg-ink-950 text-ink-300 flex">
-      <aside className="w-64 shrink-0 border-r border-white/[0.06] bg-ink-900 flex flex-col">
-        <div className="h-16 px-4 flex items-center border-b border-white/[0.06]">
-          <div className="h-7 w-7 rounded-lg bg-accent-soft/15 text-accent flex items-center justify-center mr-2.5">
-            <span className="h-2 w-2 rounded-full bg-accent shadow-[0_0_12px_rgba(110,168,254,0.65)]" />
-          </div>
-          <span className="text-[15px] font-semibold tracking-tight text-white">Podium</span>
-        </div>
+  const todaySessions = useMemo(() => sessions.filter((session) => isToday(session.lastActiveAt)), [sessions]);
+  const olderSessions = useMemo(() => sessions.filter((session) => !isToday(session.lastActiveAt)), [sessions]);
+  const normalizedQuery = commandQuery.trim().toLocaleLowerCase();
+  const commandSessions = sessions.filter((session) => {
+    const haystack = `${session.name} ${session.cwd}`.toLocaleLowerCase();
+    return !normalizedQuery || haystack.includes(normalizedQuery);
+  });
+  const showCreateCommand = !normalizedQuery || "新建会话 创建 工作目录 模型".includes(normalizedQuery);
+  const showSettingsCommand = !normalizedQuery || "设置 模型 密钥".includes(normalizedQuery);
+  const renderSessionGroup = (label: string, entries: SessionView[]) => {
+    if (entries.length === 0) return null;
+    return (
+      <div className="session-group">
+        <div className="section-label"><span>{label}</span><span>{entries.length}</span></div>
+        {entries.map((session) => {
+          const active = session.id === id;
+          const sessionName = active ? state?.sessionName || session.name : session.name;
+          const subtitle = session.pending
+            ? active && selectedDir ? selectedDir : "首条消息时选择工作目录"
+            : session.cwd;
+          const live = active ? processStatus === "running" && wsStatus === "open" : session.running;
+          return (
+            <div key={session.id} className="session-item-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  navigate(`/sessions/${session.id}`);
+                  closeDrawers();
+                }}
+                className={`session-item${active ? " active" : ""}`}
+              >
+                <span className={`status-dot${live ? " live" : ""}`} />
+                <span className="session-copy">
+                  <span className="session-title">{sessionName || "新会话"}</span>
+                  <span className="session-path">{subtitle ? shortPath(subtitle) : "默认工作区"}</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void deleteSession(session)}
+                disabled={deleting === session.id}
+                className="session-delete"
+                title="删除会话"
+                aria-label={`删除 ${sessionName || "新会话"}`}
+              >
+                <CloseIcon />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
-        <div className="px-3 pt-4 pb-2 flex items-center justify-between">
-          <span className="px-1 text-[11px] font-medium uppercase tracking-[0.14em] text-ink-500">Sessions</span>
-          <button
-            type="button"
-            onClick={() => void createSession()}
-            disabled={creating}
-            className="inline-flex items-center gap-1.5 rounded-md bg-white/[0.06] px-2 py-1 text-xs font-medium text-ink-200 transition hover:bg-white/[0.1] hover:text-white disabled:opacity-40"
-          >
-            <PlusIcon />
-            {creating ? "Creating" : "New"}
+  const composerSetup = current?.pending ? (
+    <div className="pending-setup">
+      <div className="pending-row">
+        <span className="pending-label">工作目录</span>
+        <div className="pending-control">
+          <span className="pending-folder" title={selectedDir || "首条消息时创建默认工作区"}>
+            <FolderIcon />
+            <span>{selectedDir || "首条消息时创建默认工作区"}</span>
+          </span>
+          {selectedDir && <button type="button" className="text-button" onClick={() => setSelectedDir("")}>使用默认</button>}
+          <button type="button" className="text-button" onClick={() => setDirPickerOpen((value) => !value)}>
+            {dirPickerOpen ? "收起" : "选择"}
+          </button>
+        </div>
+      </div>
+      {dirPickerOpen && (
+        <DirPicker
+          onSelect={(directory) => {
+            setSelectedDir(directory);
+            setDirPickerOpen(false);
+          }}
+          onCancel={() => setDirPickerOpen(false)}
+        />
+      )}
+      {draftModelError && <p className="form-error">{draftModelError}</p>}
+      {firstPromptError && <p className="form-error">{firstPromptError}</p>}
+    </div>
+  ) : null;
+
+  const composerControls = current?.pending ? (
+    <DraftModelPicker
+      models={draftModels}
+      modelValue={draftModelKey}
+      thinkingLevel={draftThinkingLevel}
+      disabled={draftModelLoading}
+      onModel={setDraftModelKey}
+      onThinking={setDraftThinkingLevel}
+    />
+  ) : current ? (
+      <ModelPicker
+        sessionId={id}
+        state={state}
+        disabled={wsStatus !== "open"}
+        onModel={setModel}
+        onThinking={setThinkingLevel}
+      />
+  ) : null;
+
+  return (
+    <div className="app-shell">
+      <div className={`overlay${sidebarOpen ? " visible" : ""}`} onClick={closeDrawers} />
+
+      <aside className={`sidebar${sidebarOpen ? " visible" : ""}`} aria-label="会话导航">
+        <div className="brand-row">
+          <span className="brand-mark"><PodiumIcon /></span>
+          <span className="brand-name">Podium</span>
+          <span className="brand-version">0.1</span>
+          <ThemeToggle />
+          <button type="button" className="icon-btn mobile-only" onClick={closeDrawers} aria-label="关闭会话导航">
+            <CloseIcon />
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-2 pb-3">
-          {!sessionsLoaded && <p className="px-2 py-3 text-xs text-ink-500">Loading sessions…</p>}
-          {sessionsError && <p className="px-2 py-3 text-xs leading-relaxed text-red-400">{sessionsError}</p>}
-          {sessionsLoaded && sessions.length === 0 && !sessionsError && (
-            <p className="px-2 py-3 text-xs leading-relaxed text-ink-500">No sessions yet.</p>
-          )}
-          <div className="space-y-0.5">
-            {sessions.map((session) => {
-              const active = session.id === id;
-              const sessionName = active ? state?.sessionName || session.name : session.name;
-              const subtitle = session.pending
-                ? active && selectedDir
-                  ? selectedDir
-                  : "Default workspace on first message"
-                : session.cwd;
-              return (
-                <div key={session.id} className="group relative">
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/sessions/${session.id}`)}
-                    className={`w-full rounded-lg px-3 py-2.5 pr-8 text-left transition duration-150 ${
-                      active
-                        ? "bg-white/[0.075] shadow-[inset_2px_0_0_#6ea8fe]"
-                        : "hover:bg-white/[0.045]"
-                    }`}
-                  >
-                    <span className={`block truncate text-sm ${active ? "text-white" : "text-ink-300"}`}>
-                      {sessionName || "New session"}
-                    </span>
-                    <span className="mt-0.5 block truncate font-mono text-[10px] text-ink-500">{subtitle}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void deleteSession(session)}
-                    disabled={deleting === session.id}
-                    title="Delete session"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-ink-600 opacity-0 transition hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100 focus:opacity-100 disabled:opacity-30"
-                  >
-                    ×
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+        <div className="sidebar-actions">
+          <button type="button" className="btn" onClick={openNewSession} disabled={creating}>
+            <PlusIcon />
+            新建会话
+          </button>
+        </div>
+
+        <nav className="session-nav" aria-label="会话列表">
+          {!sessionsLoaded && <p className="session-empty">正在加载会话…</p>}
+          {sessionsError && <p className="session-error">{sessionsError}</p>}
+          {sessionsLoaded && sessions.length === 0 && !sessionsError && <p className="session-empty">还没有会话。</p>}
+          {renderSessionGroup("今天", todaySessions)}
+          {renderSessionGroup("更早", olderSessions)}
         </nav>
 
-        <div className="border-t border-white/[0.06] p-2">
-          <Link
-            to="/settings"
-            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-400 transition hover:bg-white/[0.045] hover:text-white"
-          >
+        <div className="sidebar-footer">
+          <Link to="/settings" className="nav-link" onClick={closeDrawers}>
             <SettingsIcon />
-            Settings
+            设置与模型
           </Link>
-          <button
-            type="button"
-            onClick={logout}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 transition hover:bg-white/[0.045] hover:text-ink-200"
-          >
+          <button type="button" onClick={logout} className="nav-link">
             <SignOutIcon />
-            Sign out
+            退出登录
           </button>
         </div>
       </aside>
 
-      {!id || !current ? (
-        <main className="flex min-w-0 flex-1 flex-col">
-          <div className="flex flex-1 animate-fade-in items-center justify-center">
-            <div className="text-center">
-              <p className="text-sm text-ink-500">Select a session or start a new one.</p>
-              <button
-                type="button"
-                onClick={() => void createSession()}
-                disabled={creating}
-                className="mt-4 inline-flex items-center gap-2 rounded-lg bg-accent-soft px-3.5 py-2 text-sm font-medium text-white transition hover:bg-accent disabled:opacity-40"
-              >
-                <PlusIcon />
-                New session
-              </button>
-            </div>
-          </div>
-        </main>
-      ) : (
-        <main className="flex min-w-0 flex-1 flex-col animate-fade-in">
-          <header className="h-16 shrink-0 border-b border-white/[0.06] px-5 flex items-center gap-3">
-            {editingName ? (
+      <main className="main-column">
+        <header className="mobile-bar">
+          <button type="button" className="icon-btn" onClick={() => setSidebarOpen(true)} aria-label="打开会话导航">
+            <MenuIcon />
+          </button>
+          <span className="mobile-title">{current ? name : "Podium"}</span>
+          {current && (
+            <RuntimeStatus
+              current={current}
+              state={state}
+              stats={stats}
+              processStatus={processStatus}
+              wsStatus={wsStatus}
+              isStreaming={isStreaming}
+              compacting={compacting}
+              queue={queue}
+              pendingDirectory={selectedDir}
+              onCompact={compact}
+              onAbort={abort}
+            />
+          )}
+        </header>
+
+        <header className="workspace-header">
+          <div className="workspace-identity">
+            {current && editingName ? (
               <input
                 value={nameDraft}
                 autoFocus
                 onChange={(event) => setNameDraft(event.target.value)}
                 onBlur={commitName}
-                onKeyDown={(event) => event.key === "Enter" && commitName()}
-                className="min-w-0 rounded-md border border-ink-600 bg-ink-800 px-2.5 py-1.5 text-sm text-white outline-none focus:border-accent"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") commitName();
+                  if (event.key === "Escape") setEditingName(false);
+                }}
+                className="workspace-title-input"
+                aria-label="会话名称"
               />
-            ) : (
+            ) : current ? (
               <button
                 type="button"
                 disabled={current.pending || wsStatus !== "open"}
@@ -377,117 +704,190 @@ export default function ChatPage() {
                   setNameDraft(name);
                   setEditingName(true);
                 }}
-                className="truncate text-sm font-medium text-white transition hover:text-accent disabled:hover:text-white"
-                title={current.pending ? "The session will be named after it starts" : "Rename session"}
+                className="workspace-title-button"
+                title={current.pending ? "会话启动后可重命名" : "重命名会话"}
               >
                 {name}
               </button>
-            )}
-            {current.pending ? (
-              <span className="inline-flex items-center gap-1.5 text-xs text-ink-500">
-                <span className="h-1.5 w-1.5 rounded-full bg-ink-600" />
-                Not started
-              </span>
             ) : (
-              <span className={`inline-flex items-center gap-1.5 text-xs ${statusColor(processStatus)}`}>
-                <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                {processStatus}
-                {wsStatus !== "open" ? ` · ${wsStatus}` : ""}
-              </span>
+              <div className="workspace-title-button">Podium</div>
             )}
-          </header>
+          </div>
+          <div className="workspace-tools">
+            {current && (
+              <RuntimeStatus
+                current={current}
+                state={state}
+                stats={stats}
+                processStatus={processStatus}
+                wsStatus={wsStatus}
+                isStreaming={isStreaming}
+                compacting={compacting}
+                queue={queue}
+                pendingDirectory={selectedDir}
+                onCompact={compact}
+                onAbort={abort}
+              />
+            )}
+          </div>
+        </header>
 
-          <MessageStream items={items} />
-          <StatsBar state={state} stats={stats} compacting={compacting} />
-
-          <div className="shrink-0 border-t border-white/[0.06] bg-ink-950/95 backdrop-blur">
-            <div className="mx-auto max-w-3xl px-5 pt-3">
-              {current.pending ? (
-                <div className="space-y-2 animate-slide-up">
-                  <div className="flex items-center gap-3">
-                    <label className="w-16 shrink-0 text-xs font-medium text-ink-500">Model</label>
-                    <select
-                      value={draftModelKey}
-                      disabled={draftModelLoading}
-                      onChange={(event) => setDraftModelKey(event.target.value)}
-                      title={draftModelError || "Model used for the first message"}
-                      className="min-w-0 flex-1 rounded-md border border-white/[0.08] bg-ink-900 px-2.5 py-1.5 text-xs text-ink-200 outline-none transition focus:border-accent disabled:opacity-60"
-                    >
-                      {draftModels.length === 0 && (
-                        <option value="">{draftModelLoading ? "Loading models…" : "pi default model"}</option>
-                      )}
-                      {draftModels.map((model) => (
-                        <option key={modelKey(model)} value={modelKey(model)}>
-                          {model.name} · {model.provider}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <span className="w-16 shrink-0 text-xs font-medium text-ink-500">Folder</span>
-                    <div className="flex min-w-0 flex-1 items-center gap-2 text-xs">
-                      <span className="flex min-w-0 flex-1 items-center gap-2 text-ink-400">
-                        <FolderIcon />
-                        <span className="truncate font-mono">
-                          {selectedDir || "Default workspace when the first message is sent"}
-                        </span>
-                      </span>
-                      {selectedDir && (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedDir("")}
-                          className="text-ink-500 transition hover:text-white"
-                        >
-                          Use default
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setDirPickerOpen((openPicker) => !openPicker)}
-                        className="rounded-md bg-white/[0.06] px-2.5 py-1.5 text-ink-200 transition hover:bg-white/[0.1] hover:text-white"
-                      >
-                        {dirPickerOpen ? "Close" : "Choose"}
-                      </button>
-                    </div>
-                  </div>
-
-                  {dirPickerOpen && (
-                    <DirPicker
-                      onSelect={(directory) => {
-                        setSelectedDir(directory);
-                        setDirPickerOpen(false);
-                      }}
-                      onCancel={() => setDirPickerOpen(false)}
-                    />
-                  )}
-                </div>
-              ) : (
-                <div className="flex items-center gap-4 animate-slide-up">
-                  <ModelPicker
-                    sessionId={id}
-                    state={state}
-                    disabled={wsStatus !== "open"}
-                    onModel={setModel}
-                    onThinking={setThinkingLevel}
-                  />
-                  <div className="ml-auto flex min-w-0 items-center gap-2 text-xs text-ink-500" title={current.cwd}>
-                    <FolderIcon />
-                    <span className="max-w-64 truncate font-mono">{current.cwd}</span>
-                  </div>
-                </div>
-              )}
-              {firstPromptError && <p className="mt-2 text-xs text-red-400">{firstPromptError}</p>}
+        {!current ? (
+          <div className="empty-chat">
+            <div>
+              <span className="empty-chat-mark"><PodiumIcon /></span>
+              <p>{sessionsLoaded && sessions.length === 0 ? "创建第一个会话开始协作。" : "选择一个会话继续。"}</p>
+              <button type="button" className="btn btn-primary" style={{ marginTop: 16 }} onClick={openNewSession}>
+                <PlusIcon />新建会话
+              </button>
             </div>
-
+          </div>
+        ) : (
+          <>
+            <MessageStream items={items} />
             <Composer
               isStreaming={current.pending ? false : isStreaming}
               onAbort={abort}
               onSend={handleSend}
+              setup={composerSetup}
+              controls={composerControls}
               disabled={!current.pending && wsStatus !== "open"}
             />
+          </>
+        )}
+      </main>
+
+      {commandOpen && (
+        <div className="modal" role="dialog" aria-modal="true" aria-label="快捷操作" onMouseDown={(event) => event.target === event.currentTarget && setCommandOpen(false)}>
+          <div className="dialog command-dialog">
+            <div className="command-wrap">
+              <input
+                ref={commandSearchRef}
+                value={commandQuery}
+                onChange={(event) => setCommandQuery(event.target.value)}
+                className="command-input"
+                placeholder="搜索会话或操作…"
+                aria-label="搜索快捷操作"
+                autoComplete="off"
+              />
+            </div>
+            <div className="command-results">
+              {(showCreateCommand || showSettingsCommand) && <div className="command-section-label">操作</div>}
+              {showCreateCommand && (
+                <button type="button" className="command-item" onClick={openNewSession}>
+                  <PlusIcon />
+                  <span className="command-copy"><span>新建会话</span><small>选择目录与模型后开始</small></span>
+                  <span className="kbd">N</span>
+                </button>
+              )}
+              {showSettingsCommand && (
+                <button type="button" className="command-item" onClick={() => navigate("/settings")}>
+                  <SettingsIcon />
+                  <span className="command-copy"><span>打开设置与模型</span><small>管理提供商密钥和可用模型</small></span>
+                  <span className="kbd">S</span>
+                </button>
+              )}
+              {commandSessions.length > 0 && <div className="command-section-label">会话</div>}
+              {commandSessions.map((session) => (
+                <button
+                  type="button"
+                  key={session.id}
+                  className={`command-item${session.id === id ? " active" : ""}`}
+                  onClick={() => {
+                    navigate(`/sessions/${session.id}`);
+                    setCommandOpen(false);
+                    closeDrawers();
+                  }}
+                >
+                  <span className={`status-dot${session.running ? " live" : ""}`} />
+                  <span className="command-copy"><span>{session.name || "新会话"}</span><small>{session.cwd ? shortPath(session.cwd) : "等待选择工作目录"}</small></span>
+                  <span />
+                </button>
+              ))}
+              {!showCreateCommand && !showSettingsCommand && commandSessions.length === 0 && (
+                <p className="dialog-empty">没有匹配的操作或会话。</p>
+              )}
+            </div>
           </div>
-        </main>
+        </div>
+      )}
+
+      {newSessionOpen && (
+        <div className="modal" role="dialog" aria-modal="true" aria-labelledby="new-session-title" onMouseDown={(event) => event.target === event.currentTarget && setNewSessionOpen(false)}>
+          <form
+            className="dialog"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void createSession();
+            }}
+          >
+            <div className="dialog-header">
+              <div>
+                <h2 className="dialog-title" id="new-session-title">创建新会话</h2>
+                <p className="dialog-subtitle">先锁定工作目录和模型，首条消息发送后启动 Agent。</p>
+              </div>
+              <button type="button" className="icon-btn" onClick={() => setNewSessionOpen(false)} aria-label="关闭">
+                <CloseIcon />
+              </button>
+            </div>
+            <div className="dialog-body">
+              <div className="field">
+                <label htmlFor="session-name">会话名称</label>
+                <input
+                  id="session-name"
+                  ref={newSessionNameRef}
+                  value={newSessionName}
+                  onChange={(event) => setNewSessionName(event.target.value)}
+                  maxLength={256}
+                  placeholder="例如：修复移动端导航"
+                />
+              </div>
+              <div className="field">
+                <label>工作目录</label>
+                <div className="field-inline">
+                  <div className="form-control" title={newSessionDir || "首条消息时创建默认工作区"} style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden" }}>
+                    <FolderIcon />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{newSessionDir || "默认工作区"}</span>
+                  </div>
+                  {newSessionDir && <button type="button" className="btn" onClick={() => setNewSessionDir("")}>默认</button>}
+                  <button type="button" className="btn" onClick={() => setNewSessionDirPicker((value) => !value)}>
+                    {newSessionDirPicker ? "收起" : "选择"}
+                  </button>
+                </div>
+                {newSessionDirPicker && (
+                  <DirPicker
+                    onSelect={(directory) => {
+                      setNewSessionDir(directory);
+                      setNewSessionDirPicker(false);
+                    }}
+                    onCancel={() => setNewSessionDirPicker(false)}
+                  />
+                )}
+              </div>
+              <div className="field">
+                <label htmlFor="session-model">模型</label>
+                <select
+                  id="session-model"
+                  value={newSessionModelKey}
+                  onChange={(event) => setNewSessionModelKey(event.target.value)}
+                  disabled={newSessionModelsLoading}
+                >
+                  {newSessionModels.length === 0 && <option value="">{newSessionModelsLoading ? "正在加载模型…" : "pi 默认模型"}</option>}
+                  {newSessionModels.map((model) => (
+                    <option key={modelKey(model)} value={modelKey(model)}>{model.name} · {model.provider}</option>
+                  ))}
+                </select>
+              </div>
+              {newSessionError && <p className="form-error" style={{ marginTop: 14 }}>{newSessionError}</p>}
+            </div>
+            <div className="dialog-footer">
+              <button type="button" className="btn" onClick={() => setNewSessionOpen(false)}>取消</button>
+              <button type="submit" className="btn btn-primary" disabled={creating}>
+                {creating ? "正在创建…" : "创建会话"}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
       {uiRequest && <ExtensionUiModal request={uiRequest} onAnswer={answerUi} />}

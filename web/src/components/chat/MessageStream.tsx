@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AssistantItem, ChatItem } from "../../stores/chatModel";
+import { ChevronDownIcon, PodiumIcon } from "../Icons";
 import { Markdown } from "./Markdown";
 import { ToolCard } from "./ToolCard";
 
@@ -7,84 +8,80 @@ function ThinkingBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   if (!text.trim()) return null;
   return (
-    <div className="mb-2">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="text-xs text-ink-500 hover:text-ink-300"
-      >
-        {open ? "▾" : "▸"} thinking
+    <div className="thinking-block">
+      <button type="button" onClick={() => setOpen((value) => !value)} className="thinking-toggle" aria-expanded={open}>
+        <ChevronDownIcon style={{ transform: open ? "none" : "rotate(-90deg)" }} />
+        推理过程
       </button>
-      {open && (
-        <pre className="mt-1 text-xs text-ink-400 whitespace-pre-wrap border-l-2 border-ink-700 pl-3">
-          {text}
-        </pre>
-      )}
+      {open && <pre className="thinking-copy">{text}</pre>}
     </div>
   );
 }
 
-function AssistantBubble({ item }: { item: AssistantItem }) {
+function AssistantMessage({ item }: { item: AssistantItem }) {
   return (
-    <div className="max-w-none">
-      <ThinkingBlock text={item.thinking} />
-      {item.text ? (
-        <Markdown text={item.text} />
-      ) : (
-        item.streaming && <span className="text-ink-500 text-sm">▍</span>
-      )}
-      {item.error && <p className="text-red-400 text-sm mt-1">{item.error}</p>}
-    </div>
+    <article className="message assistant-message">
+      <div className="message-meta">
+        <span className="avatar"><PodiumIcon /></span>
+        <span>Podium Agent</span>
+        {item.streaming && <span>正在回复</span>}
+      </div>
+      <div className="assistant-copy">
+        <ThinkingBlock text={item.thinking} />
+        {item.text ? <Markdown text={item.text} /> : item.streaming && <span className="streaming-caret" />}
+        {item.error && <p className="message-error">{item.error}</p>}
+      </div>
+    </article>
   );
 }
 
 function Item({ item }: { item: ChatItem }) {
   if (item.kind === "user") {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[80%] bg-accent-soft/20 border border-accent-soft/30 rounded-2xl rounded-br-sm px-4 py-2 text-ink-100 whitespace-pre-wrap">
-          {item.text}
-        </div>
-      </div>
+      <article className="message user-message">
+        <div className="user-bubble">{item.text}</div>
+      </article>
     );
   }
   if (item.kind === "tool") return <ToolCard tool={item} />;
-  return <AssistantBubble item={item} />;
+  return <AssistantMessage item={item} />;
 }
 
-// MessageStream renders the ordered chat items and keeps the view pinned to the
-// bottom while the user is already near the bottom.
+// MessageStream renders the durable and streaming timeline while preserving a
+// user's manual scroll position when they inspect older messages.
 export function MessageStream({ items }: { items: ChatItem[] }) {
   const endRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const stick = useRef(true);
-	const visibleItems = items.slice(-1000);
+  const containerRef = useRef<HTMLElement>(null);
+  const stickToBottom = useRef(true);
+  const visibleItems = items.slice(-1000);
 
   useEffect(() => {
-    if (stick.current) endRef.current?.scrollIntoView({ behavior: "auto" });
+    if (stickToBottom.current) endRef.current?.scrollIntoView({ behavior: "auto" });
   }, [items]);
 
   const onScroll = () => {
-    const el = containerRef.current;
-    if (!el) return;
-    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    const element = containerRef.current;
+    if (!element) return;
+    stickToBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120;
   };
 
   return (
-    <div ref={containerRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-6">
-      <div className="max-w-3xl mx-auto flex flex-col gap-4">
+    <section ref={containerRef} onScroll={onScroll} className="message-region" aria-live="polite">
+      <div className="message-stack">
         {items.length === 0 && (
-          <p className="text-center text-ink-500 mt-10">Send a message to start.</p>
+          <div className="empty-chat">
+            <div>
+              <span className="empty-chat-mark"><PodiumIcon /></span>
+              <p>发送一条消息开始协作。</p>
+            </div>
+          </div>
         )}
-		{items.length > visibleItems.length && (
-		  <p className="text-center text-xs text-ink-500">
-			{items.length - visibleItems.length} older items are hidden to keep this view responsive.
-		  </p>
-		)}
-		{visibleItems.map((item) => (
-          <Item key={item.id} item={item} />
-        ))}
+        {items.length > visibleItems.length && (
+          <p className="history-note">为保持流畅，已隐藏 {items.length - visibleItems.length} 条较早记录。</p>
+        )}
+        {visibleItems.map((item) => <Item key={item.id} item={item} />)}
         <div ref={endRef} />
       </div>
-    </div>
+    </section>
   );
 }

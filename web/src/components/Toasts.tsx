@@ -8,25 +8,19 @@ export function Toasts() {
 
   if (toasts.length === 0) return null;
 
-  const color: Record<string, string> = {
-    info: "border-ink-600 bg-ink-800 text-ink-200",
-    warning: "border-amber-600/50 bg-amber-950/40 text-amber-200",
-    error: "border-red-600/50 bg-red-950/40 text-red-200",
-  };
-
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          className={`border rounded-lg px-4 py-2 text-sm shadow-lg flex items-start gap-3 ${color[t.level]}`}
-        >
-          <span className="flex-1">{t.message}</span>
+    <div className="toast-stack" aria-live="polite">
+      {toasts.map((toast) => (
+        <div key={toast.id} className={`toast ${toast.level}`}>
+          <span className={`status-dot ${toast.level === "error" ? "error" : toast.level === "warning" ? "connecting" : "live"}`} />
+          <span className="toast-content">{toast.message}</span>
           <button
-            onClick={() => dismiss(t.id)}
-            className="text-ink-400 hover:text-white leading-none"
+            type="button"
+            onClick={() => dismiss(toast.id)}
+            className="toast-close"
+            aria-label="关闭通知"
           >
-            ✕
+            ×
           </button>
         </div>
       ))}

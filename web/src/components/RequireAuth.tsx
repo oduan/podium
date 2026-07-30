@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PodiumIcon } from "./Icons";
 import { Navigate } from "../router";
 import { api, getToken } from "../api/client";
 
@@ -24,7 +25,14 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 
   if (state === "checking") {
     return (
-      <div className="h-full flex items-center justify-center text-ink-400">Checking session…</div>
+      <div className="auth-page">
+        <div className="empty-chat">
+          <div>
+            <span className="empty-chat-mark"><PodiumIcon /></span>
+            <p>正在验证连接…</p>
+          </div>
+        </div>
+      </div>
     );
   }
   if (state === "fail") return <Navigate to="/login" replace />;

@@ -1,9 +1,17 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Podium · pi Agent</title>
+    <meta name="color-scheme" content="light dark" />
+    <title>Podium · 智能编码工作区</title>
+    <script>
+      try {
+        document.documentElement.dataset.theme = localStorage.getItem("podium-theme") === "dark" ? "dark" : "light";
+      } catch {
+        document.documentElement.dataset.theme = "light";
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

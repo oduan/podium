@@ -47,6 +47,7 @@ interface SessionStoreState {
     streamingBehavior?: "steer" | "followUp",
   ) => boolean;
   abort: () => boolean;
+  compact: () => boolean;
   setModel: (provider: string, modelId: string) => boolean;
   setThinkingLevel: (level: string) => boolean;
   setSessionName: (name: string) => boolean;
@@ -182,6 +183,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   },
 
   abort: () => send({ id: nextCommandId(), type: "abort" }, get, set),
+
+  compact: () => send({ id: nextCommandId(), type: "compact" }, get, set),
 
   setModel: (provider, modelId) =>
     send({ id: nextCommandId(), type: "set_model", provider, modelId }, get, set),
@@ -364,7 +367,7 @@ function handleEvent(
           set({ items: get().items.filter((item) => item.id !== `local-${id}`) });
         }
         pushToast(get, set, "error", `${command} failed: ${String(event.error ?? "unknown error")}`);
-      } else if (["set_model", "set_thinking_level", "cycle_model", "set_session_name"].includes(command)) {
+      } else if (["set_model", "set_thinking_level", "cycle_model", "set_session_name", "compact"].includes(command)) {
         void get().refreshStats();
       }
       return;

@@ -1,181 +1,209 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { CloseIcon, PaperclipIcon, SendIcon, StopIcon } from "../Icons";
 
 export interface PendingImage {
-	// pi RPC expects exactly { type: "image", data, mimeType }.
-	type: "image";
+  // pi RPC expects exactly { type: "image", data, mimeType }.
+  type: "image";
   data: string;
-	mimeType: string;
+  mimeType: string;
   name: string;
-	size: number;
+  size: number;
 }
 
 const MAX_IMAGES = 4;
 const MAX_IMAGE_SIZE = 8 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_SIZE = 16 * 1024 * 1024;
 
-// Composer is the message input. While the agent is streaming it exposes a
-// steer/follow-up selector and an abort button; otherwise it sends a normal
-// prompt. Pasted or attached images are carried as base64.
+// Composer owns the prompt draft and image attachments. Session/model controls
+// are passed in so the full footer remains one responsive surface.
 export function Composer({
   isStreaming,
   onSend,
   onAbort,
+  setup,
+  controls,
   disabled,
 }: {
   isStreaming: boolean;
-	onSend: (
-	  message: string,
-	  images: PendingImage[],
-	  behavior?: "steer" | "followUp",
-	) => boolean | Promise<boolean>;
-	onAbort: () => boolean;
+  onSend: (
+    message: string,
+    images: PendingImage[],
+    behavior?: "steer",
+  ) => boolean | Promise<boolean>;
+  onAbort: () => boolean;
+  setup?: ReactNode;
+  controls?: ReactNode;
   disabled?: boolean;
 }) {
   const [text, setText] = useState("");
-  const [behavior, setBehavior] = useState<"steer" | "followUp">("steer");
   const [images, setImages] = useState<PendingImage[]>([]);
-	const [attachmentError, setAttachmentError] = useState("");
+  const [attachmentError, setAttachmentError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const restoreFocusRef = useRef(false);
   const inputDisabled = disabled || submitting;
+  const hasDraft = Boolean(text.trim()) || images.length > 0;
+  const primaryAction = isStreaming && !hasDraft ? "abort" : "send";
+
+  useEffect(() => {
+    if (!restoreFocusRef.current || inputDisabled) return;
+    window.requestAnimationFrame(() => {
+      const input = textareaRef.current;
+      if (!input || input.disabled) return;
+      input.focus({ preventScroll: true });
+      restoreFocusRef.current = false;
+    });
+  }, [inputDisabled]);
 
   const addFiles = async (files: FileList | null) => {
-	if (!files || inputDisabled) return;
-	setAttachmentError("");
+    if (!files || inputDisabled) return;
+    setAttachmentError("");
     const next: PendingImage[] = [];
-	let total = images.reduce((sum, image) => sum + image.size, 0);
-	for (const file of Array.from(files)) {
+    let total = images.reduce((sum, image) => sum + image.size, 0);
+    for (const file of Array.from(files)) {
       if (!file.type.startsWith("image/")) continue;
-	  if (images.length + next.length >= MAX_IMAGES) {
-		setAttachmentError(`You can attach at most ${MAX_IMAGES} images.`);
-		break;
-	  }
-	  if (file.size > MAX_IMAGE_SIZE) {
-		setAttachmentError(`${file.name} is larger than 8 MiB.`);
-		continue;
-	  }
-	  if (total + file.size > MAX_TOTAL_IMAGE_SIZE) {
-		setAttachmentError("Attached images exceed the 16 MiB total limit.");
-		break;
-	  }
-	  try {
-		const data = await readAsBase64(file);
-		next.push({ type: "image", data, mimeType: file.type, name: file.name, size: file.size });
-		total += file.size;
-	  } catch {
-		setAttachmentError(`Could not read ${file.name}.`);
-	  }
+      if (images.length + next.length >= MAX_IMAGES) {
+        setAttachmentError(`最多可添加 ${MAX_IMAGES} 张图片。`);
+        break;
+      }
+      if (file.size > MAX_IMAGE_SIZE) {
+        setAttachmentError(`${file.name} 超过 8 MiB。`);
+        continue;
+      }
+      if (total + file.size > MAX_TOTAL_IMAGE_SIZE) {
+        setAttachmentError("图片总大小超过 16 MiB。 ");
+        break;
+      }
+      try {
+        const data = await readAsBase64(file);
+        next.push({ type: "image", data, mimeType: file.type, name: file.name, size: file.size });
+        total += file.size;
+      } catch {
+        setAttachmentError(`无法读取 ${file.name}。`);
+      }
     }
-    if (next.length) setImages((prev) => [...prev, ...next]);
+    if (next.length) setImages((previous) => [...previous, ...next]);
   };
 
   const submit = async () => {
-	if (inputDisabled) return;
-    const msg = text.trim();
-    if (!msg && images.length === 0) return;
-	setSubmitting(true);
-	try {
-	  if (await onSend(msg, images, isStreaming ? behavior : undefined)) {
-	    setText("");
-	    setImages([]);
-	    setAttachmentError("");
-	  }
-	} finally {
-	  setSubmitting(false);
-	}
+    if (inputDisabled) return;
+    const message = text.trim();
+    if (!message && images.length === 0) return;
+    setSubmitting(true);
+    try {
+      if (await onSend(message, images, isStreaming ? "steer" : undefined)) {
+        restoreFocusRef.current = true;
+        setText("");
+        setImages([]);
+        setAttachmentError("");
+        if (textareaRef.current) textareaRef.current.style.height = "";
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
+  const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === "Enter" && event.ctrlKey) {
+      event.preventDefault();
       void submit();
     }
   };
 
   return (
-    <div className="px-5 pb-5 pt-3">
-      <div className="max-w-3xl mx-auto">
-        {images.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-2">
-            {images.map((img, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-1 bg-ink-800 border border-ink-700 rounded px-2 py-1 text-xs text-ink-300"
-              >
-                🖼 {img.name}
-                <button
-                  onClick={() => setImages((p) => p.filter((_, j) => j !== i))}
-                  className="text-ink-500 hover:text-red-400"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-		{attachmentError && <p className="text-xs text-red-400 mb-2">{attachmentError}</p>}
-        <div className="flex items-end gap-2">
-          {isStreaming && (
-            <select
-              value={behavior}
-              disabled={inputDisabled}
-              onChange={(e) => setBehavior(e.target.value as "steer" | "followUp")}
-              className="bg-ink-800 border border-ink-600 rounded-lg text-xs text-ink-300 px-2 py-2 outline-none"
-              title="How to deliver this message while the agent is working"
-            >
-              <option value="steer">steer</option>
-              <option value="followUp">follow-up</option>
-            </select>
-          )}
-          <textarea
-            value={text}
-			disabled={inputDisabled}
-            onChange={(e) => setText(e.target.value)}
-			maxLength={256 * 1024}
-            onKeyDown={onKeyDown}
-            onPaste={(e) => addFiles(e.clipboardData.files)}
-            rows={1}
-            placeholder={isStreaming ? "Steer or queue a follow-up…" : "Message the agent…"}
-            className="flex-1 resize-none bg-ink-800 border border-ink-600 rounded-lg px-3 py-2 text-white outline-none focus:border-accent max-h-40"
-          />
+    <footer className="composer-shell">
+      <div className="composer">
+        {setup}
+
+        <div className="composer-box">
           <input
             ref={fileRef}
             type="file"
             accept="image/*"
             multiple
             hidden
-			onChange={(e) => {
-			  void addFiles(e.target.files);
-			  e.target.value = "";
-			}}
+            onChange={(event) => {
+              void addFiles(event.target.files);
+              event.target.value = "";
+            }}
           />
-          <button
-            onClick={() => fileRef.current?.click()}
-			disabled={inputDisabled}
-			className="px-2 py-2 text-ink-400 hover:text-white disabled:opacity-40"
-            title="Attach image"
-          >
-            📎
-          </button>
-          {isStreaming && (
-            <button
-              onClick={onAbort}
-			  disabled={inputDisabled}
-			  className="bg-red-600/80 hover:bg-red-600 text-white rounded-lg px-3 py-2 text-sm disabled:opacity-40"
-            >
-              Stop
-            </button>
+          {images.length > 0 && (
+            <div className="attachments" aria-label="已添加的图片">
+              {images.map((image, index) => (
+                <div key={`${image.name}-${image.size}-${index}`} className="attachment-chip">
+                  <PaperclipIcon />
+                  <span>{image.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => setImages((previous) => previous.filter((_, itemIndex) => itemIndex !== index))}
+                    aria-label={`移除 ${image.name}`}
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
-          <button
-            onClick={() => void submit()}
-            disabled={inputDisabled || (!text.trim() && images.length === 0)}
-            className="bg-accent-soft hover:bg-accent text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-40"
-          >
-            {submitting ? "Starting…" : "Send"}
-          </button>
+          {attachmentError && <p className="attachment-error">{attachmentError}</p>}
+          <textarea
+            ref={textareaRef}
+            value={text}
+            disabled={inputDisabled}
+            onChange={(event) => {
+              setText(event.target.value);
+              event.currentTarget.style.height = "auto";
+              event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 144)}px`;
+            }}
+            maxLength={256 * 1024}
+            onKeyDown={onKeyDown}
+            onPaste={(event) => void addFiles(event.clipboardData.files)}
+            rows={1}
+            placeholder={isStreaming ? "补充指令或安排下一步…" : "向 Agent 发送消息…"}
+            aria-label="消息"
+          />
+          <div className="composer-toolbar">
+            <div className="composer-toolbar-left">
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={inputDisabled}
+                className="icon-btn composer-attach"
+                title="添加图片"
+                aria-label="添加图片"
+              >
+                <PaperclipIcon />
+              </button>
+              {controls}
+            </div>
+            <div className="composer-toolbar-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  if (primaryAction === "abort") {
+                    onAbort();
+                  } else {
+                    void submit();
+                  }
+                }}
+                disabled={inputDisabled || (primaryAction === "send" && !hasDraft)}
+                className={`btn composer-primary-btn${primaryAction === "abort" ? " terminate-btn" : " btn-primary"}`}
+                title={primaryAction === "abort" ? "终止当前运行" : "发送消息"}
+                aria-label={primaryAction === "abort" ? "终止当前运行" : "发送消息"}
+              >
+                {primaryAction === "abort"
+                  ? <StopIcon />
+                  : submitting
+                    ? <span className="tool-spinner" />
+                    : <SendIcon />}
+              </button>
+            </div>
+          </div>
         </div>
+        <p className="composer-hint">Ctrl + Enter 发送 · Enter 换行 · Agent 工作时可继续补充指令</p>
       </div>
-    </div>
+    </footer>
   );
 }
 
@@ -183,10 +211,9 @@ function readAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const res = reader.result as string;
-      // Strip the data URL prefix, keep raw base64.
-      const comma = res.indexOf(",");
-      resolve(comma >= 0 ? res.slice(comma + 1) : res);
+      const result = reader.result as string;
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
     };
     reader.onerror = reject;
     reader.readAsDataURL(file);

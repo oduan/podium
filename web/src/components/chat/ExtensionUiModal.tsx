@@ -1,113 +1,94 @@
 import { useEffect, useState } from "react";
 import type { ExtensionUiRequest } from "../../stores/sessionStore";
+import { CloseIcon } from "../Icons";
 
-// ExtensionUiModal renders the interactive request an extension raised through
-// pi (select / confirm / input / editor) and returns the user's answer as an
-// extension_ui_response passthrough command.
 export function ExtensionUiModal({
   request,
   onAnswer,
 }: {
   request: ExtensionUiRequest;
-	onAnswer: (command: object) => boolean;
+  onAnswer: (command: object) => boolean;
 }) {
   const [text, setText] = useState(request.prefill ?? "");
 
-	useEffect(() => {
-	  setText(request.prefill ?? "");
-	}, [request.id, request.prefill]);
+  useEffect(() => {
+    setText(request.prefill ?? "");
+  }, [request.id, request.prefill]);
 
-	const replyValue = (value: string) =>
-	  onAnswer({ type: "extension_ui_response", id: request.id, value });
-	const replyConfirmed = (confirmed: boolean) =>
-	  onAnswer({ type: "extension_ui_response", id: request.id, confirmed });
-	const cancel = () =>
-	  onAnswer({ type: "extension_ui_response", id: request.id, cancelled: true });
+  const replyValue = (value: string) => onAnswer({ type: "extension_ui_response", id: request.id, value });
+  const replyConfirmed = (confirmed: boolean) => onAnswer({ type: "extension_ui_response", id: request.id, confirmed });
+  const cancel = () => onAnswer({ type: "extension_ui_response", id: request.id, cancelled: true });
 
   return (
-	<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
-	  <div className="w-full max-w-lg bg-ink-900 border border-ink-700 rounded-2xl p-6 shadow-xl">
-        {request.title && (
-          <h2 className="text-lg font-semibold text-white mb-2">{request.title}</h2>
-        )}
-        {request.message && (
-          <p className="text-sm text-ink-300 whitespace-pre-wrap mb-4">{request.message}</p>
-        )}
+    <div
+      className="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="extension-dialog-title"
+      onMouseDown={(event) => event.target === event.currentTarget && cancel()}
+      onKeyDown={(event) => event.key === "Escape" && cancel()}
+    >
+      <div className="dialog">
+        <div className="dialog-header">
+          <div>
+            <h2 className="dialog-title" id="extension-dialog-title">{request.title || "需要你的输入"}</h2>
+            {request.message && <p className="dialog-subtitle">{request.message}</p>}
+          </div>
+          <button type="button" className="icon-btn" onClick={cancel} aria-label="取消">
+            <CloseIcon />
+          </button>
+        </div>
 
         {request.method === "select" && (
-          <div className="flex flex-col gap-2">
-            {(request.options ?? []).map((opt, i) => (
+          <div className="command-results">
+            {(request.options ?? []).map((option, index) => (
               <button
-                key={i}
-				onClick={() => replyValue(opt)}
-                className="text-left bg-ink-800 hover:bg-ink-700 border border-ink-600 rounded-lg px-3 py-2 text-ink-200"
+                key={`${option}-${index}`}
+                type="button"
+                onClick={() => replyValue(option)}
+                className="command-item"
               >
-                {opt}
+                <span className="queue-index">{String(index + 1).padStart(2, "0")}</span>
+                <span className="command-copy"><span>{option}</span></span>
+                <span />
               </button>
             ))}
-			<button onClick={cancel} className="mt-2 px-3 py-2 text-sm text-ink-400 hover:text-white">
-			  Cancel
-			</button>
           </div>
         )}
 
         {request.method === "confirm" && (
-          <div className="flex justify-end gap-3">
-            <button
-			  onClick={() => replyConfirmed(false)}
-              className="px-4 py-2 text-sm text-ink-300 hover:text-white"
-            >
-              No
-            </button>
-            <button
-			  onClick={() => replyConfirmed(true)}
-              className="bg-accent-soft hover:bg-accent text-white rounded-lg px-4 py-2 text-sm font-medium"
-            >
-              Yes
-            </button>
+          <div className="dialog-footer">
+            <button type="button" onClick={() => replyConfirmed(false)} className="btn">拒绝</button>
+            <button type="button" onClick={() => replyConfirmed(true)} className="btn btn-primary">允许</button>
           </div>
         )}
 
         {(request.method === "input" || request.method === "editor") && (
           <>
-            {request.method === "editor" ? (
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-				onKeyDown={(e) => {
-				  if (e.key === "Escape") cancel();
-				}}
-                autoFocus
-                rows={8}
-                placeholder={request.placeholder}
-                className="w-full bg-ink-800 border border-ink-600 rounded-lg px-3 py-2 text-white outline-none focus:border-accent font-mono text-sm"
-              />
-            ) : (
-              <input
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-				onKeyDown={(e) => {
-				  if (e.key === "Enter") replyValue(text);
-				  else if (e.key === "Escape") cancel();
-				}}
-                autoFocus
-                placeholder={request.placeholder}
-                className="w-full bg-ink-800 border border-ink-600 rounded-lg px-3 py-2 text-white outline-none focus:border-accent"
-              />
-            )}
-            <div className="flex justify-end gap-3 mt-4">
-              <button
-				onClick={cancel}
-                className="px-4 py-2 text-sm text-ink-300 hover:text-white"
-              >
-                Cancel
-              </button>
-              <button
-				onClick={() => replyValue(text)}
-                className="bg-accent-soft hover:bg-accent text-white rounded-lg px-4 py-2 text-sm font-medium"
-              >
-                Submit
-              </button>
+            <div className="dialog-body">
+              {request.method === "editor" ? (
+                <textarea
+                  value={text}
+                  onChange={(event) => setText(event.target.value)}
+                  autoFocus
+                  rows={8}
+                  placeholder={request.placeholder}
+                  className="form-control"
+                />
+              ) : (
+                <input
+                  value={text}
+                  onChange={(event) => setText(event.target.value)}
+                  onKeyDown={(event) => event.key === "Enter" && replyValue(text)}
+                  autoFocus
+                  placeholder={request.placeholder}
+                  className="form-control"
+                />
+              )}
+            </div>
+            <div className="dialog-footer">
+              <button type="button" onClick={cancel} className="btn">取消</button>
+              <button type="button" onClick={() => replyValue(text)} className="btn btn-primary">提交</button>
             </div>
           </>
         )}

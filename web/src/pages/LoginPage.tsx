@@ -1,15 +1,17 @@
 import { useState } from "react";
-import { useNavigate } from "../router";
+import { PodiumIcon } from "../components/Icons";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { api, setToken } from "../api/client";
+import { useNavigate } from "../router";
 
 export default function LoginPage() {
-  const [token, setTok] = useState("");
+  const [token, setTokenDraft] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
     setError("");
     setBusy(true);
     setToken(token.trim());
@@ -17,38 +19,43 @@ export default function LoginPage() {
       await api.verify();
       navigate("/", { replace: true });
     } catch {
-      setError("Invalid token.");
+      setError("访问令牌无效，请检查后重试。");
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="h-full flex items-center justify-center">
-      <form
-        onSubmit={submit}
-        className="w-full max-w-sm bg-ink-900 border border-ink-700 rounded-2xl p-8 shadow-xl"
-      >
-        <h1 className="text-2xl font-semibold text-white mb-1">Podium</h1>
-        <p className="text-sm text-ink-400 mb-6">pi Agent web console</p>
-        <label className="block text-sm mb-2 text-ink-300">Access token</label>
-        <input
-          type="password"
-          value={token}
-          onChange={(e) => setTok(e.target.value)}
-          autoFocus
-          className="w-full bg-ink-800 border border-ink-600 rounded-lg px-3 py-2 text-white outline-none focus:border-accent"
-          placeholder="Enter your token"
-        />
-        {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
-        <button
-          type="submit"
-          disabled={busy || !token.trim()}
-          className="mt-5 w-full bg-accent-soft hover:bg-accent text-white rounded-lg py-2 font-medium disabled:opacity-50"
-        >
-          {busy ? "Verifying…" : "Enter"}
-        </button>
+    <main className="auth-page">
+      <div className="auth-theme"><ThemeToggle /></div>
+      <form onSubmit={submit} className="auth-card">
+        <div className="auth-brand">
+          <span className="brand-mark"><PodiumIcon /></span>
+          <div className="auth-brand-copy">
+            <h1>Podium</h1>
+            <p>智能编码工作区</p>
+          </div>
+        </div>
+
+        <div className="auth-form">
+          <label htmlFor="access-token">访问令牌</label>
+          <input
+            id="access-token"
+            type="password"
+            value={token}
+            onChange={(event) => setTokenDraft(event.target.value)}
+            autoFocus
+            autoComplete="current-password"
+            className="form-control"
+            placeholder="输入 Podium 访问令牌"
+          />
+          {error && <p className="form-error" style={{ marginTop: 9 }}>{error}</p>}
+          <button type="submit" disabled={busy || !token.trim()} className="btn btn-primary">
+            {busy ? "正在验证…" : "进入工作区"}
+          </button>
+        </div>
+        <p className="auth-help">令牌仅用于连接你的 Podium 服务。</p>
       </form>
-    </div>
+    </main>
   );
 }

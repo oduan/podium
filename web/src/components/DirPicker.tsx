@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { FileEntry } from "../types";
+import { FolderIcon } from "./Icons";
 
 // DirPicker browses server directories without implicitly selecting one.
 // The user confirms the currently displayed folder explicitly.
@@ -28,7 +29,7 @@ export function DirPicker({
       setRoot(result.root);
       setEntries(result.entries);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Failed to browse folders");
+      setError(loadError instanceof Error ? loadError.message : "无法读取目录");
     } finally {
       setLoading(false);
     }
@@ -44,24 +45,24 @@ export function DirPicker({
   };
 
   return (
-    <div className="ml-[4.75rem] overflow-hidden rounded-lg border border-white/[0.08] bg-ink-900 animate-slide-up">
-      <div className="flex items-center gap-2 border-b border-white/[0.06] px-3 py-2">
+    <div className="dir-picker">
+      <div className="dir-picker-header">
         <button
           type="button"
           onClick={goUp}
           disabled={!rel || loading}
-          className="rounded px-2 py-1 text-xs text-ink-400 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-30"
+          className="text-button"
         >
-          Up
+          上一级
         </button>
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-500">{abs || root || "Loading…"}</span>
+        <span className="dir-picker-path">{abs || root || "正在读取…"}</span>
       </div>
 
-      <div className="max-h-44 overflow-y-auto py-1">
-        {error && <p className="px-3 py-2 text-xs text-red-400">{error}</p>}
-        {!error && loading && <p className="px-3 py-2 text-xs text-ink-500">Loading folders…</p>}
+      <div className="dir-picker-list">
+        {error && <p className="dir-picker-message error">{error}</p>}
+        {!error && loading && <p className="dir-picker-message">正在读取目录…</p>}
         {!error && !loading && entries.length === 0 && (
-          <p className="px-3 py-2 text-xs text-ink-500">No subfolders</p>
+          <p className="dir-picker-message">当前目录没有子目录</p>
         )}
         {!loading &&
           entries.map((entry) => (
@@ -69,27 +70,27 @@ export function DirPicker({
               key={entry.path}
               type="button"
               onClick={() => void load(entry.path)}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-300 transition hover:bg-white/[0.045] hover:text-white"
+              className="dir-entry"
             >
-              <span className="text-ink-600">▸</span>
+              <FolderIcon />
               <span className="truncate">{entry.name}</span>
             </button>
           ))}
       </div>
 
-      <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] px-3 py-2">
+      <div className="dir-picker-footer">
         {onCancel && (
-          <button type="button" onClick={onCancel} className="px-2 py-1 text-xs text-ink-500 transition hover:text-white">
-            Cancel
+          <button type="button" onClick={onCancel} className="btn">
+            取消
           </button>
         )}
         <button
           type="button"
           onClick={() => abs && onSelect(abs)}
           disabled={!abs || loading}
-          className="rounded-md bg-accent-soft px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-accent disabled:opacity-40"
+          className="btn btn-primary"
         >
-          Use this folder
+          使用此目录
         </button>
       </div>
     </div>

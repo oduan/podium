@@ -1,11 +1,19 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Podium · pi Agent</title>
-    <script type="module" crossorigin src="/assets/index-DPK5djz6.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-cBb__3gr.css">
+    <meta name="color-scheme" content="light dark" />
+    <title>Podium · 智能编码工作区</title>
+    <script>
+      try {
+        document.documentElement.dataset.theme = localStorage.getItem("podium-theme") === "dark" ? "dark" : "light";
+      } catch {
+        document.documentElement.dataset.theme = "light";
+      }
+    </script>
+    <script type="module" crossorigin src="/assets/index-CIq-4Y9j.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-C2YX2HKx.css">
   </head>
   <body>
     <div id="root"></div>
