@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, clearToken } from "../api/client";
 import { DirPicker } from "../components/DirPicker";
+import { RecentDirectorySelect } from "../components/RecentDirectorySelect";
 import {
   CloseIcon,
   FolderIcon,
@@ -844,16 +845,14 @@ export default function ChatPage() {
               </div>
               <div className="field">
                 <label>工作目录</label>
-                <div className="field-inline">
-                  <div className="form-control" title={newSessionDir || "首条消息时创建默认工作区"} style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden" }}>
-                    <FolderIcon />
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{newSessionDir || "默认工作区"}</span>
-                  </div>
-                  {newSessionDir && <button type="button" className="btn" onClick={() => setNewSessionDir("")}>默认</button>}
-                  <button type="button" className="btn" onClick={() => setNewSessionDirPicker((value) => !value)}>
-                    {newSessionDirPicker ? "收起" : "选择"}
-                  </button>
-                </div>
+                <RecentDirectorySelect
+                  value={newSessionDir}
+                  onChange={setNewSessionDir}
+                  onBrowse={() => setNewSessionDirPicker(true)}
+                  onOpenChange={(open) => {
+                    if (open) setNewSessionDirPicker(false);
+                  }}
+                />
                 {newSessionDirPicker && (
                   <DirPicker
                     onSelect={(directory) => {

@@ -1604,6 +1604,225 @@ textarea.form-control {
   flex: 1;
 }
 
+.recent-directory-select {
+  position: relative;
+}
+
+.recent-directory-trigger {
+  width: 100%;
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  gap: 9px;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg-2);
+  background: color-mix(in oklab, var(--fg) 2%, var(--bg));
+  text-align: left;
+  transition: color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);
+}
+
+.recent-directory-trigger:hover,
+.recent-directory-select.open .recent-directory-trigger {
+  color: var(--fg);
+  border-color: color-mix(in oklab, var(--fg) 16%, transparent);
+  background: color-mix(in oklab, var(--fg) 4%, var(--bg));
+}
+
+.recent-directory-trigger > span {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-directory-trigger .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--meta);
+}
+
+.recent-directory-trigger .recent-directory-chevron {
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+
+.recent-directory-select.open .recent-directory-chevron {
+  transform: rotate(180deg);
+}
+
+.recent-directory-menu {
+  margin-top: 6px;
+  overflow: hidden;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--fg) 2%, var(--bg));
+  box-shadow: var(--elev-raised);
+  animation: slide-up var(--motion-fast) var(--ease-standard) both;
+}
+
+.recent-directory-option,
+.recent-directory-browse {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  border-radius: 5px;
+  color: var(--muted);
+  background: transparent;
+  text-align: left;
+  transition: color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);
+}
+
+.recent-directory-option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 0 8px;
+}
+
+.recent-directory-option.default:hover,
+.recent-directory-option.default.selected,
+.recent-directory-browse:hover {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--fg) 5%, transparent);
+}
+
+.recent-directory-check {
+  width: 18px;
+  color: var(--accent-hover);
+}
+
+.recent-directory-check .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.recent-directory-label {
+  font-size: 12px;
+  font-weight: 510;
+}
+
+.recent-directory-divider {
+  height: 1px;
+  margin: 5px 4px;
+  background: var(--border-soft);
+}
+
+.recent-directory-scroll {
+  max-height: 176px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--fg) 16%, transparent) transparent;
+}
+
+.recent-directory-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+
+.recent-directory-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.recent-directory-scroll::-webkit-scrollbar-thumb {
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--fg) 16%, transparent);
+  background-clip: padding-box;
+}
+
+.recent-directory-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: center;
+  border-radius: 5px;
+  color: var(--muted);
+  background: transparent;
+  transition: color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);
+}
+
+.recent-directory-row:hover,
+.recent-directory-row:focus-within,
+.recent-directory-row.selected {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--fg) 5%, transparent);
+}
+
+.recent-directory-row .recent-directory-option,
+.recent-directory-row .recent-directory-option:hover {
+  color: inherit;
+  background: transparent;
+}
+
+.recent-directory-row .recent-directory-option:focus-visible,
+.recent-directory-row .recent-directory-remove:focus-visible {
+  box-shadow: none;
+}
+
+.recent-directory-row + .recent-directory-row {
+  margin-top: 1px;
+}
+
+.recent-directory-path {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-directory-remove {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 5px;
+  color: var(--meta);
+  background: transparent;
+  opacity: 0.7;
+  transition: color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard), opacity var(--motion-fast) var(--ease-standard);
+}
+
+.recent-directory-remove .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.recent-directory-remove:hover {
+  color: color-mix(in oklab, var(--danger) 78%, var(--fg));
+  background: transparent;
+  opacity: 1;
+}
+
+.recent-directory-empty {
+  margin: 0;
+  padding: 10px 8px;
+  color: var(--meta);
+  font-size: 11px;
+}
+
+.recent-directory-browse {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.recent-directory-browse .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--meta);
+}
+
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
