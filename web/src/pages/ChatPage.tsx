@@ -523,7 +523,7 @@ export default function ChatPage() {
     return !normalizedQuery || haystack.includes(normalizedQuery);
   });
   const showCreateCommand = !normalizedQuery || "新建会话 创建 工作目录 模型".includes(normalizedQuery);
-  const showSettingsCommand = !normalizedQuery || "设置 模型 密钥".includes(normalizedQuery);
+  const showSettingsCommand = !normalizedQuery || "设置 模型 可用 pi agent".includes(normalizedQuery);
   const renderSessionGroup = (label: string, entries: SessionView[]) => {
     if (entries.length === 0) return null;
     return (
@@ -784,7 +784,7 @@ export default function ChatPage() {
               {showSettingsCommand && (
                 <button type="button" className="command-item" onClick={() => navigate("/settings")}>
                   <SettingsIcon />
-                  <span className="command-copy"><span>打开设置与模型</span><small>管理提供商密钥和可用模型</small></span>
+                  <span className="command-copy"><span>打开设置与模型</span><small>查看 pi Agent 当前可用模型</small></span>
                   <span className="kbd">S</span>
                 </button>
               )}

@@ -2159,10 +2159,6 @@ textarea.form-control {
   margin: 0 auto;
 }
 
-.settings-section + .settings-section {
-  margin-top: 52px;
-}
-
 .settings-section-header {
   margin-bottom: 20px;
 }
@@ -2183,50 +2179,8 @@ textarea.form-control {
   line-height: 1.6;
 }
 
-.settings-section-header code {
-  padding: 2px 5px;
-  border-radius: 4px;
-  color: var(--fg-2);
-  background: color-mix(in oklab, var(--fg) 5%, transparent);
-  font-family: var(--font-mono);
-  font-size: 0.9em;
-}
-
-.provider-list,
 .model-list {
   border-top: 1px solid var(--border-soft);
-}
-
-.provider-row {
-  display: grid;
-  grid-template-columns: 180px minmax(180px, 1fr) auto;
-  gap: 16px;
-  align-items: center;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--border-soft);
-}
-
-.provider-name {
-  color: var(--fg-2);
-  font-size: 13px;
-  font-weight: 510;
-}
-
-.provider-state {
-  margin-top: 3px;
-  color: var(--meta);
-  font-family: var(--font-mono);
-  font-size: 10px;
-}
-
-.provider-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.provider-remove {
-  color: color-mix(in oklab, var(--danger) 68%, var(--fg));
 }
 
 .model-row {
@@ -2487,15 +2441,6 @@ textarea.form-control {
     padding: 28px 16px 48px;
   }
 
-  .provider-row {
-    grid-template-columns: 1fr auto;
-    gap: 10px;
-  }
-
-  .provider-row .form-control {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
 }
 
 @media (max-width: 520px) {
@@ -2557,19 +2502,6 @@ textarea.form-control {
 
   .auth-card {
     padding: 24px;
-  }
-
-  .provider-row {
-    grid-template-columns: 1fr;
-  }
-
-  .provider-actions {
-    grid-row: auto;
-  }
-
-  .provider-row .form-control {
-    grid-column: auto;
-    grid-row: auto;
   }
 
   .model-row {
