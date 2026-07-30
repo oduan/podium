@@ -1,0 +1,22 @@
+# Frontend dependencies and local compiler state
+web/node_modules/
+web/tsconfig.tsbuildinfo
+web/dist/
+
+# Local Go build state and binaries
+server/.gocache*/
+server/.gomodcache/
+server/podium
+server/podium.exe
+
+# Local runtime logs
+server/.runtime/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# OS metadata
+.DS_Store
+Thumbs.db
