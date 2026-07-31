@@ -33,8 +33,8 @@ func defaults() Config {
 	home, _ := os.UserHomeDir()
 	dataDir := filepath.Join(home, ".podium")
 	return Config{
-		Host:               "127.0.0.1",
-		Port:               8000,
+		Host:               "0.0.0.0",
+		Port:               38273,
 		DataDir:            dataDir,
 		WorkspacesRoot:     filepath.Join(dataDir, "workspaces"),
 		PiBinary:           "pi",

@@ -24,6 +24,19 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+// captureUrlToken picks up a `?token=` from the URL (e.g. the URL printed
+// at server startup), stores it, and strips it from the address bar.
+export function captureUrlToken(): void {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("token");
+  if (!token) return;
+  setToken(token);
+  params.delete("token");
+  const search = params.toString();
+  const url = window.location.pathname + (search ? `?${search}` : "") + window.location.hash;
+  window.history.replaceState(null, "", url);
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {

@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "./index.css";
+import { captureUrlToken } from "./api/client";
 import { RequireAuth } from "./components/RequireAuth";
 import LoginPage from "./pages/LoginPage";
 import ChatPage from "./pages/ChatPage";
@@ -21,6 +22,8 @@ function Routes() {
 
   return <RequireAuth>{page}</RequireAuth>;
 }
+
+captureUrlToken();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

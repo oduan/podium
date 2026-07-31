@@ -78,9 +78,19 @@ Start Podium from a terminal:
 podium
 ```
 
-Then open [http://127.0.0.1:8000](http://127.0.0.1:8000). On first launch, Podium generates an access token, prints it in the terminal, and saves it to `~/.podium/config.json`. Paste that token into the login page.
+Then open the URL printed in the terminal — it already contains the access token, e.g. `http://localhost:38273/?token=...` — so you can click it directly and land in the workspace. On first launch, Podium generates an access token, prints it in the terminal, and saves it to `~/.podium/config.json`.
 
 Re-run the same install command whenever you want to update to the latest release.
+
+### Updating
+
+Check for a newer release and get the exact command to update:
+
+```sh
+podium update
+```
+
+It prints the currently installed and latest available versions, then outputs the reinstall command for your platform (the same installer commands above, with `PODIUM_INSTALL_DIR` pinned to the directory where your `podium` executable lives so the update happens in place). Stop any running Podium server, then copy and execute the printed command.
 
 ## How it works
 
@@ -102,8 +112,8 @@ Settings are resolved in this order: command-line flags, `PODIUM_*` environment 
 
 | Flag | Environment variable | Default | Description |
 |---|---|---|---|
-| `--host` | `PODIUM_HOST` | `127.0.0.1` | Listen address. Keep this on loopback unless Podium is protected by a reverse proxy. |
-| `--port` | `PODIUM_PORT` | `8000` | HTTP server port. |
+| `--host` | `PODIUM_HOST` | `0.0.0.0` | Listen address. The printed startup URL includes the token, so any machine on the network can open it. Set to `127.0.0.1` to restrict to this machine. |
+| `--port` | `PODIUM_PORT` | `38273` | HTTP server port. |
 | `--token` | `PODIUM_TOKEN` | Generated | Bearer token required by the browser client. |
 | `--data-dir` | `PODIUM_DATA_DIR` | `~/.podium` | Podium configuration and session metadata directory. |
 | `--workspaces-root` | `PODIUM_WORKSPACES_ROOT` | `~/.podium/workspaces` | Root used for sessions without a selected folder. |
@@ -143,7 +153,7 @@ cd web
 npm run dev
 ```
 
-Vite serves [http://localhost:5173](http://localhost:5173) and proxies API and WebSocket traffic to Podium on port `8000`.
+Vite serves [http://localhost:5173](http://localhost:5173) and proxies API and WebSocket traffic to Podium on port `38273`.
 
 ## Releases
 
@@ -155,7 +165,7 @@ Pushing a tag whose name starts with `v` triggers [the release workflow](.github
 
 ## Security notes
 
-- Podium listens on `127.0.0.1` by default. Use a TLS reverse proxy and keep bearer-token authentication enabled before exposing it to a network.
+- Podium listens on `0.0.0.0:38273` by default and prints token-bearing access URLs at startup. Anyone with a URL can open the workspace, so keep bearer-token authentication enabled and treat printed URLs as secrets. Use a TLS reverse proxy before exposing it to an untrusted network.
 - The folder picker is restricted by `PODIUM_BROWSE_ROOT`.
 - Provider credentials are owned by pi through its auth file or environment variables; Podium does not provide a model-credential editor.
 - pi extensions and tools can execute code with the permissions of the user running Podium. Review your pi configuration before exposing the service.

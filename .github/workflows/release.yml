@@ -78,7 +78,7 @@ jobs:
             (
               cd server
               CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-                go build -trimpath -ldflags="-s -w" -o "$build_dir/$binary_name" ./cmd/podium
+                go build -trimpath -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o "$build_dir/$binary_name" ./cmd/podium
             )
 
             if [[ "$archive_format" == "zip" ]]; then
