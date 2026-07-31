@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ToolItem } from "../../stores/chatModel";
 import { CheckIcon, ChevronDownIcon, CloseIcon } from "../Icons";
 
-function DiffView({ diff }: { diff: string }) {
+export function DiffView({ diff }: { diff: string }) {
   return (
     <pre className="tool-output">
       {diff.split("\n").map((line, index) => {
@@ -16,7 +16,7 @@ function DiffView({ diff }: { diff: string }) {
   );
 }
 
-function summarizeArgs(name: string, args: Record<string, unknown>): string {
+export function summarizeArgs(name: string, args: Record<string, unknown>): string {
   const stringValue = (key: string) => typeof args[key] === "string" ? String(args[key]) : "";
   switch (name) {
     case "bash":

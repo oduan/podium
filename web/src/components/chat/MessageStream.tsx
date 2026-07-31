@@ -1,19 +1,127 @@
 import { useEffect, useRef, useState } from "react";
-import type { AssistantItem, ChatItem } from "../../stores/chatModel";
-import { ChevronDownIcon, PodiumIcon } from "../Icons";
+import type { AssistantItem, ChatItem, ToolItem } from "../../stores/chatModel";
+import { CheckIcon, ChevronDownIcon, CloseIcon, PodiumIcon } from "../Icons";
 import { Markdown } from "./Markdown";
-import { ToolCard } from "./ToolCard";
+import { DiffView, summarizeArgs, ToolCard } from "./ToolCard";
 
-function ThinkingBlock({ text }: { text: string }) {
+// One thinking segment: collapsed to a single preview line by default, like
+// pi's CLI which hides thinking behind a one-line italic label. Clicking the
+// line expands it to a scrollable view of roughly eight lines.
+function ThinkingSegment({ text, streaming }: { text: string; streaming: boolean }) {
   const [open, setOpen] = useState(false);
-  if (!text.trim()) return null;
+  const scrollRef = useRef<HTMLPreElement>(null);
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const preview = lines[0] ?? "";
+  // Short single-line segments need no expansion affordance.
+  const expandable = lines.length > 1 || preview.length > 80;
+
+  useEffect(() => {
+    if (open && streaming && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [text, open, streaming]);
+
+  if (!expandable) {
+    return (
+      <div className="exec-line think-line" title={text}>
+        <span className="exec-line-text">{preview}</span>
+      </div>
+    );
+  }
+
   return (
-    <div className="thinking-block">
-      <button type="button" onClick={() => setOpen((value) => !value)} className="thinking-toggle" aria-expanded={open}>
-        <ChevronDownIcon style={{ transform: open ? "none" : "rotate(-90deg)" }} />
-        推理过程
+    <div className={`think-segment${open ? " open" : ""}`}>
+      <button
+        type="button"
+        className="exec-line think-line think-toggle"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        title={text}
+      >
+        <ChevronDownIcon className="icon exec-chevron" style={{ transform: open ? "none" : "rotate(-90deg)" }} />
+        <span className="exec-line-text">{preview}</span>
       </button>
-      {open && <pre className="thinking-copy">{text}</pre>}
+      {open && (
+        <pre ref={scrollRef} className="think-full">
+          {text}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+// One tool call: a single line by default. Clicking it expands the output or
+// diff below (scrollable); while the tool is still running the expanded view
+// follows the live output.
+function ToolLine({ tool, streaming }: { tool: ToolItem; streaming: boolean }) {
+  const [open, setOpen] = useState(false);
+  const scrollRef = useRef<HTMLPreElement>(null);
+  const subtitle = summarizeArgs(tool.name, tool.args);
+  const hasBody = Boolean(tool.output || tool.diff);
+
+  useEffect(() => {
+    if (open && streaming && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [tool.output, tool.diff, open, streaming]);
+
+  const body = tool.diff ? (
+    <DiffView diff={tool.diff} />
+  ) : tool.output ? (
+    <pre ref={scrollRef} className={`exec-tool-output${tool.isError ? " error" : ""}`}>{tool.output}</pre>
+  ) : null;
+
+  const line = (
+    <>
+      {tool.running ? (
+        <span className="tool-spinner" />
+      ) : tool.isError ? (
+        <CloseIcon className="icon exec-tool-state error" />
+      ) : (
+        <CheckIcon className="icon exec-tool-state" />
+      )}
+      <span className="exec-tool-name">{tool.name}</span>
+      {subtitle && <span className="exec-tool-detail">{subtitle}</span>}
+      {hasBody && (
+        <ChevronDownIcon className="icon exec-chevron" style={{ transform: open ? "none" : "rotate(-90deg)" }} />
+      )}
+    </>
+  );
+
+  return (
+    <div className={`tool-entry${open ? " open" : ""}`}>
+      {hasBody ? (
+        <button
+          type="button"
+          className="exec-line tool-line tool-toggle"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          title={subtitle}
+        >
+          {line}
+        </button>
+      ) : (
+        <div className="exec-line tool-line" title={subtitle}>{line}</div>
+      )}
+      {open && body}
+    </div>
+  );
+}
+
+// The execution log renders a turn's thinking segments and tool calls as one
+// compact small-font line each, in the order they happened.
+function ExecutionLog({ item }: { item: AssistantItem }) {
+  if (item.exec.length === 0) return null;
+
+  return (
+    <div className="exec-log">
+      {item.exec.map((entry, index) => {
+        if (entry.type === "think") {
+          return <ThinkingSegment key={`think-${index}`} text={entry.text} streaming={item.streaming} />;
+        }
+        const tool = entry.tool;
+        return <ToolLine key={tool.id} tool={tool} streaming={item.streaming} />;
+      })}
     </div>
   );
 }
@@ -21,13 +129,8 @@ function ThinkingBlock({ text }: { text: string }) {
 function AssistantMessage({ item }: { item: AssistantItem }) {
   return (
     <article className="message assistant-message">
-      <div className="message-meta">
-        <span className="avatar"><PodiumIcon /></span>
-        <span>Podium Agent</span>
-        {item.streaming && <span>正在回复</span>}
-      </div>
       <div className="assistant-copy">
-        <ThinkingBlock text={item.thinking} />
+        <ExecutionLog item={item} />
         {item.text ? <Markdown text={item.text} /> : item.streaming && <span className="streaming-caret" />}
         {item.error && <p className="message-error">{item.error}</p>}
       </div>

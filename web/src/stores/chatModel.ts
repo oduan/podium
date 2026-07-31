@@ -9,14 +9,21 @@ export interface UserItem {
   timestamp?: number;
 }
 
+// Interleaved execution log: thinking segments and tool calls in the order
+// they happened, each rendered as one compact line.
+export type ThinkEntry = { type: "think"; text: string };
+export type ToolEntry = { type: "tool"; tool: ToolItem };
+export type ExecEntry = ThinkEntry | ToolEntry;
+
 export interface AssistantItem {
   kind: "assistant";
   id: string;
   text: string;
-  thinking: string;
+  exec: ExecEntry[];
   streaming: boolean;
   error?: string;
   timestamp?: number;
+  startedAt?: number;
 }
 
 export interface ToolItem {
@@ -78,6 +85,52 @@ function extractToolResultText(content: PiMessage["content"]): string {
     .join("");
 }
 
+// Rebuilds the interleaved execution log from ordered message content. When
+// `existing` is provided, live tool state (output, errors, diffs) is kept for
+// matching tool call ids.
+function buildExecFromContent(
+  content: string | ContentBlock[],
+  existing?: Map<string, ToolItem>,
+): ExecEntry[] {
+  if (typeof content === "string") return [];
+  const exec: ExecEntry[] = [];
+  let openThink: ThinkEntry | null = null;
+  const flushThink = () => {
+    if (openThink) {
+      exec.push(openThink);
+      openThink = null;
+    }
+  };
+  for (const block of content) {
+    const raw = block as Record<string, unknown>;
+    if (block.type === "thinking" && typeof raw.thinking === "string") {
+      openThink ??= { type: "think", text: "" };
+      openThink.text += raw.thinking;
+    } else if (block.type === "toolCall" && typeof raw.id === "string" && typeof raw.name === "string") {
+      flushThink();
+      const current = existing?.get(raw.id);
+      const tool: ToolItem = current ?? {
+        kind: "tool",
+        id: raw.id,
+        name: raw.name,
+        args: isRecord(raw.arguments) ? raw.arguments : {},
+        output: "",
+        running: false,
+        isError: false,
+      };
+      if (current) {
+        current.name = raw.name;
+        current.args = isRecord(raw.arguments) ? raw.arguments : {};
+      }
+      exec.push({ type: "tool", tool });
+    } else if (block.type === "text") {
+      flushThink();
+    }
+  }
+  flushThink();
+  return exec;
+}
+
 // get_entries includes abandoned branches. Follow parentId from leafId so the
 // UI renders only the active conversation branch, in chronological order.
 export function activeBranchEntries(entries: SessionEntry[], leafId: string | null): SessionEntry[] {
@@ -113,12 +166,20 @@ export function buildItemsFromEntries(entries: SessionEntry[], leafId: string | 
       }
       case "assistant": {
         const { text, thinking, tools } = textFromContent(msg.content);
-        if (text || thinking) {
-          items.push({ kind: "assistant", id: entry.id, text, thinking, streaming: false, timestamp: ts });
-        }
-        for (const tool of tools) {
-          items.push(tool);
-          toolIndex.set(tool.id, tool);
+        if (text || thinking || tools.length > 0) {
+          const exec = buildExecFromContent(msg.content);
+          items.push({
+            kind: "assistant",
+            id: entry.id,
+            text,
+            exec,
+            streaming: false,
+            timestamp: ts,
+            startedAt: typeof ts === "number" ? ts : undefined,
+          });
+          for (const entry of exec) {
+            if (entry.type === "tool") toolIndex.set(entry.tool.id, entry.tool);
+          }
         }
         break;
       }
@@ -163,9 +224,20 @@ export function applyEvent(
 ): ApplyResult {
   // Clone item objects as well as the array: Zustand subscribers must never
   // observe mutations to objects from the previous state snapshot.
-  const next = items.map((item) =>
-    item.kind === "tool" ? { ...item, args: { ...item.args } } : { ...item },
-  ) as ChatItem[];
+  const next = items.map((item) => {
+    if (item.kind === "tool") return { ...item, args: { ...item.args } };
+    if (item.kind === "assistant") {
+      return {
+        ...item,
+        exec: item.exec.map((entry) =>
+          entry.type === "tool"
+            ? { type: "tool" as const, tool: { ...entry.tool, args: { ...entry.tool.args } } }
+            : { type: "think" as const, text: entry.text },
+        ),
+      };
+    }
+    return { ...item };
+  }) as ChatItem[];
 
   const ensureAssistant = (): AssistantItem => {
     if (streamingAssistantId) {
@@ -176,8 +248,9 @@ export function applyEvent(
       kind: "assistant",
       id: `stream-${++streamCounter}`,
       text: "",
-      thinking: "",
+      exec: [],
       streaming: true,
+      startedAt: Date.now(),
     };
     next.push(item);
     streamingAssistantId = item.id;
@@ -185,11 +258,19 @@ export function applyEvent(
   };
 
   const upsertTool = (id: string, name = "tool", args: Record<string, unknown> = {}): ToolItem => {
-    const existing = next.find((item) => item.kind === "tool" && item.id === id);
-    if (existing?.kind === "tool") return existing;
+    const assistant = ensureAssistant();
+    for (const entry of assistant.exec) {
+      if (entry.type === "tool" && entry.tool.id === id) return entry.tool;
+    }
     const tool: ToolItem = { kind: "tool", id, name, args, output: "", running: false, isError: false };
-    next.push(tool);
+    assistant.exec.push({ type: "tool", tool });
     return tool;
+  };
+
+  const appendThinking = (assistant: AssistantItem, delta: string) => {
+    const last = assistant.exec[assistant.exec.length - 1];
+    if (last?.type === "think") last.text += delta;
+    else assistant.exec.push({ type: "think", text: delta });
   };
 
   switch (event.type) {
@@ -203,7 +284,7 @@ export function applyEvent(
       if (!update) break;
       const assistant = ensureAssistant();
       if (update.type === "text_delta") assistant.text += update.delta ?? "";
-      else if (update.type === "thinking_delta") assistant.thinking += update.delta ?? "";
+      else if (update.type === "thinking_delta") appendThinking(assistant, update.delta ?? "");
       else if (update.type === "error") {
 		assistant.error = errorText(update.error ?? update.message ?? update.reason ?? "Assistant stream failed");
         assistant.streaming = false;
@@ -228,13 +309,21 @@ export function applyEvent(
         if (message?.role === "assistant") {
           const final = textFromContent(message.content);
           assistant.text = final.text;
-          assistant.thinking = final.thinking;
           assistant.timestamp = message.timestamp;
-          for (const tool of final.tools) {
-            const current = upsertTool(tool.id, tool.name, tool.args);
-            current.name = tool.name;
-            current.args = tool.args;
+          // Rebuild the log in the authoritative content order while keeping
+          // live tool state (outputs, errors, diffs) keyed by call id.
+          const byId = new Map<string, ToolItem>();
+          for (const entry of assistant.exec) {
+            if (entry.type === "tool") byId.set(entry.tool.id, entry.tool);
           }
+          const rebuilt = buildExecFromContent(message.content, byId);
+          const rebuiltIds = new Set(
+            rebuilt.filter((entry) => entry.type === "tool").map((entry) => entry.tool.id),
+          );
+          for (const entry of assistant.exec) {
+            if (entry.type === "tool" && !rebuiltIds.has(entry.tool.id)) rebuilt.push(entry);
+          }
+          assistant.exec = rebuilt;
         }
         assistant.streaming = false;
         streamingAssistantId = null;

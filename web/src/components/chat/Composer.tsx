@@ -201,7 +201,6 @@ export function Composer({
             </div>
           </div>
         </div>
-        <p className="composer-hint">Ctrl + Enter 发送 · Enter 换行 · Agent 工作时可继续补充指令</p>
       </div>
     </footer>
   );

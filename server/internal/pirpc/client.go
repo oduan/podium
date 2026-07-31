@@ -24,8 +24,8 @@ import (
 
 const (
 	maxRPCLineSize      = 32 * 1024 * 1024
-	maxSubscriberEvents = 1024
-	maxSubscriberBytes  = 16 * 1024 * 1024
+	maxSubscriberEvents = 4096
+	maxSubscriberBytes  = 64 * 1024 * 1024
 )
 
 // Response is a parsed RPC response line.

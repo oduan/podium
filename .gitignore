@@ -20,3 +20,8 @@ server/.runtime/
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Local dev logs and editor backups
+server/podium-dev.log
+web/vite-dev.log
+*.exe~

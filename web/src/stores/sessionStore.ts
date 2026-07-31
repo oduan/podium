@@ -68,6 +68,13 @@ let queuedChatEvents: PiEvent[] = [];
 let resyncRequested = false;
 let uiTimeout: number | null = null;
 
+// Streaming deltas are batched into a single render pass instead of one React
+// render per event, so bursts of tool output or thinking updates cannot
+// overwhelm the browser (which would otherwise drop the socket server-side).
+const CHAT_BATCH_MS = 32;
+let pendingChatEvents: PiEvent[] = [];
+let pendingFlushTimer: number | null = null;
+
 export const useSessionStore = create<SessionStoreState>((set, get) => ({
   sessionId: null,
   wsStatus: "closed",
@@ -119,7 +126,11 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
 
     const nextSocket = new SessionSocket(sessionId, {
       onStatus: (status) => {
-        if (isCurrent(generation, sessionId, get) && socket === nextSocket) set({ wsStatus: status });
+        if (isCurrent(generation, sessionId, get) && socket === nextSocket) {
+          // Don't lose the last batch of deltas when the socket drops.
+          if (status === "closed") flushPendingChatEvents();
+          set({ wsStatus: status });
+        }
       },
       onEvent: (event) => {
         if (isCurrent(generation, sessionId, get) && socket === nextSocket) {
@@ -311,7 +322,15 @@ function handleEvent(
     case "process_status": {
       const status = String(event.status ?? "unknown");
       set({ processStatus: status });
-      if (status === "error") pushToast(get, set, "error", `Process error: ${String(event.error ?? "unknown")}`);
+      if (status === "error") {
+        const raw = String(event.error ?? "unknown");
+        // A dropped event stream while pi is still running is transient: the
+        // socket reconnects and resyncs from durable entries automatically.
+        const message = raw.includes("event consumer is too slow")
+          ? "连接繁忙，正在自动重连并同步…"
+          : `Process error: ${raw}`;
+        pushToast(get, set, "warning", message);
+      }
       return;
     }
     case "agent_start":
@@ -386,9 +405,27 @@ function handleEvent(
       }
       return;
     }
-    const applied = applyEvent(get().items, get().streamingAssistantId, event);
-    set(applied);
+    pendingChatEvents.push(event);
+    if (pendingFlushTimer === null) {
+      pendingFlushTimer = window.setTimeout(flushPendingChatEvents, CHAT_BATCH_MS);
+    }
   }
+}
+
+function flushPendingChatEvents() {
+  pendingFlushTimer = null;
+  const events = pendingChatEvents;
+  pendingChatEvents = [];
+  if (events.length === 0) return;
+  const { items, streamingAssistantId } = useSessionStore.getState();
+  let nextItems = items;
+  let nextStreamingId = streamingAssistantId;
+  for (const event of events) {
+    const applied = applyEvent(nextItems, nextStreamingId, event);
+    nextItems = applied.items;
+    nextStreamingId = applied.streamingAssistantId;
+  }
+  useSessionStore.setState({ items: nextItems, streamingAssistantId: nextStreamingId });
 }
 
 function isChatEvent(event: PiEvent): boolean {
@@ -423,6 +460,11 @@ function clearUiTimeout() {
 
 function resetAsyncState() {
   clearUiTimeout();
+  if (pendingFlushTimer !== null) {
+    window.clearTimeout(pendingFlushTimer);
+    pendingFlushTimer = null;
+  }
+  pendingChatEvents = [];
   syncingGeneration = null;
   queuedChatEvents = [];
   resyncRequested = false;
@@ -443,8 +485,19 @@ function send(command: object, get: StoreGet, set: StoreSet): boolean {
 }
 
 function pushToast(get: StoreGet, set: StoreSet, level: Toast["level"], message: string) {
-	const toast: Toast = { id: ++toastSeq, level, message: message.slice(0, 4096) };
-	set({ toasts: [...get().toasts, toast].slice(-50) });
+  const text = message.slice(0, 4096);
+  // Identical notifications collapse into one; refreshing it restarts the
+  // auto-dismiss timer instead of stacking another toast.
+  const existing = get().toasts.find((toast) => toast.level === level && toast.message === text);
+  const id = existing?.id ?? ++toastSeq;
+  set({
+    toasts: existing
+      ? get().toasts.map((toast) => (toast.id === existing.id ? { ...toast, level, message: text } : toast))
+      : [...get().toasts, { id, level, message: text }].slice(-50),
+  });
+  window.setTimeout(() => {
+    useSessionStore.setState((state) => ({ toasts: state.toasts.filter((toast) => toast.id !== id) }));
+  }, level === "error" ? 8000 : 5000);
 }
 
 function errorMessage(error: unknown, fallback: string): string {

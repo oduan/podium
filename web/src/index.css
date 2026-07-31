@@ -627,30 +627,6 @@ html[data-theme="light"] .theme-icon-moon {
   animation: message-in var(--motion-base) var(--ease-standard) both;
 }
 
-.message-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  color: var(--meta);
-  font-size: 11px;
-  letter-spacing: 0.02em;
-}
-
-.avatar {
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  color: var(--muted);
-  background: color-mix(in oklab, var(--fg) 3%, transparent);
-  font-size: 10px;
-  font-weight: 590;
-}
-
 .user-message {
   display: flex;
   justify-content: flex-end;
@@ -837,33 +813,133 @@ html[data-theme="light"] .theme-icon-moon {
   text-align: center;
 }
 
-.thinking-block {
-  margin-bottom: 8px;
+.exec-log {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0 0 8px;
 }
 
-.thinking-toggle {
-  display: inline-flex;
+.exec-line {
+  display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 0;
-  color: var(--meta);
-  background: transparent;
+  min-width: 0;
+  font-family: var(--font-mono);
   font-size: 11px;
+  line-height: 1.55;
 }
 
-.thinking-toggle:hover {
+.think-line {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.think-toggle {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.think-toggle:hover .exec-line-text {
+  color: var(--fg-2);
+}
+
+.exec-chevron {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--meta);
+  transition: transform var(--motion-fast);
+}
+
+.think-full {
+  max-height: 140px;
+  overflow-y: auto;
+  margin: 1px 0 5px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--fg) 2%, transparent);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  scrollbar-width: thin;
+}
+
+.exec-line-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-line {
   color: var(--muted);
 }
 
-.thinking-copy {
-  margin: 5px 0 0;
-  padding: 0 0 0 12px;
-  border-left: 2px solid var(--border-soft);
+.tool-toggle {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tool-toggle:hover .exec-tool-name {
+  color: var(--fg);
+}
+
+.exec-tool-state {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--success);
+}
+
+.exec-tool-state.error {
+  color: var(--danger);
+}
+
+.exec-tool-name {
+  flex: none;
+  color: var(--fg-2);
+  font-weight: 590;
+}
+
+.exec-tool-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exec-tool-output {
+  max-height: 200px;
+  overflow: auto;
+  margin: 2px 0 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
   color: var(--muted);
+  background: color-mix(in oklab, var(--bg) 70%, transparent);
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.6;
   white-space: pre-wrap;
+}
+
+.exec-tool-output.error {
+  color: color-mix(in oklab, var(--danger) 80%, var(--fg));
 }
 
 .message-error {
@@ -1336,12 +1412,6 @@ html[data-theme="light"] .theme-icon-moon {
   margin: 0 2px 4px;
   color: color-mix(in oklab, var(--danger) 76%, var(--fg));
   font-size: 11px;
-}
-
-.composer-hint {
-  margin: 8px 4px 0;
-  color: var(--meta);
-  font-size: 10px;
 }
 
 .runtime-popover {
@@ -2400,10 +2470,6 @@ textarea.form-control {
 
   .mobile-bar .runtime-popover {
     right: -2px;
-  }
-
-  .composer-hint {
-    display: none;
   }
 
   .icon-btn,
