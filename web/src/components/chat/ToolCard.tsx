@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ToolItem } from "../../stores/chatModel";
-import { CheckIcon, ChevronDownIcon, CloseIcon } from "../Icons";
+import { ChevronDownIcon } from "../Icons";
 
 export function DiffView({ diff }: { diff: string }) {
   return (
-    <pre className="tool-output">
+    <pre className="exec-body">
       {diff.split("\n").map((line, index) => {
         let className = "diff-line";
         if (line.startsWith("+") && !line.startsWith("+++")) className += " add";
@@ -32,37 +32,92 @@ export function summarizeArgs(name: string, args: Record<string, unknown>): stri
   }
 }
 
-export function ToolCard({ tool }: { tool: ToolItem }) {
+// Compact trailing metadata for a collapsed tool line: diff stats for edits,
+// output line count for everything else.
+function toolMeta(tool: ToolItem): string {
+  if (tool.diff) {
+    let add = 0;
+    let remove = 0;
+    for (const line of tool.diff.split("\n")) {
+      if (line.startsWith("+") && !line.startsWith("+++")) add++;
+      else if (line.startsWith("-") && !line.startsWith("---")) remove++;
+    }
+    return `+${add} −${remove}`;
+  }
+  if (tool.output) {
+    const count = tool.output.trimEnd().split("\n").length;
+    return count > 1 ? `${count} 行` : "";
+  }
+  return "";
+}
+
+// One tool call rendered as a uniform grid row (name + args · meta +
+// chevron); failures tint the tool name red instead of a leading icon.
+// Clicking expands the output or diff below; while the tool is still
+// running the expanded view follows the live output.
+export function ToolLine({ tool, streaming }: { tool: ToolItem; streaming: boolean }) {
   const [open, setOpen] = useState(false);
+  const scrollRef = useRef<HTMLPreElement>(null);
   const subtitle = summarizeArgs(tool.name, tool.args);
   const hasBody = Boolean(tool.output || tool.diff);
+  const meta = toolMeta(tool);
+
+  useEffect(() => {
+    if (open && streaming && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [tool.output, tool.diff, open, streaming]);
+
+  const body = tool.diff ? (
+    <DiffView diff={tool.diff} />
+  ) : tool.output ? (
+    <pre ref={scrollRef} className={`exec-body${tool.isError ? " error" : ""}`}>{tool.output}</pre>
+  ) : null;
+
+  const row = (
+    <>
+      <span className="exec-main">
+        <span className={`exec-tool-name${tool.isError ? " error" : ""}`}>{tool.name}</span>
+        {subtitle && <span className="exec-tool-detail">{subtitle}</span>}
+      </span>
+      <span className="exec-tail">
+        {tool.running && <span className="tool-spinner" />}
+        {meta && <span className="exec-meta">{meta}</span>}
+        {hasBody && (
+          <ChevronDownIcon className="icon exec-chevron" style={{ transform: open ? "none" : "rotate(-90deg)" }} />
+        )}
+      </span>
+    </>
+  );
 
   return (
-    <div className={`tool-row${open ? " open" : ""}`}>
-      <button
-        type="button"
-        onClick={() => hasBody && setOpen((value) => !value)}
-        className="tool-summary"
-        aria-expanded={hasBody ? open : undefined}
-      >
-        {tool.running ? (
-          <span className="tool-spinner" />
-        ) : tool.isError ? (
-          <CloseIcon className="icon tool-state error" />
-        ) : (
-          <CheckIcon className="icon tool-state" />
-        )}
-        <span>
-          <span className="tool-name">{tool.name}</span>
-          {subtitle && <span className="tool-detail">{subtitle}</span>}
-        </span>
-        {hasBody ? <ChevronDownIcon className="icon tool-chevron" /> : <span />}
-      </button>
-
-      {open && tool.diff && <DiffView diff={tool.diff} />}
-      {open && !tool.diff && tool.output && (
-        <pre className={`tool-output${tool.isError ? " error" : ""}`}>{tool.output}</pre>
+    <div className={`tool-entry${open ? " open" : ""}`}>
+      {hasBody ? (
+        <button
+          type="button"
+          className="exec-line tool-line tool-toggle"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          title={subtitle}
+        >
+          {row}
+        </button>
+      ) : (
+        <div className="exec-line tool-line" title={subtitle}>{row}</div>
       )}
+      {open && body}
     </div>
+  );
+}
+
+// Top-level tool executions (e.g. persisted bash runs) share the exact same
+// compact row as in-turn tool calls so the timeline stays uniform.
+export function ToolCard({ tool }: { tool: ToolItem }) {
+  return (
+    <article className="message tool-message">
+      <div className="exec-log">
+        <ToolLine tool={tool} streaming={tool.running} />
+      </div>
+    </article>
   );
 }

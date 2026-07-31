@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionEntry } from "../types";
-import { applyEvent, buildItemsFromEntries } from "./chatModel";
+import { applyEvent, buildItemsFromEntries, finalizeTurn } from "./chatModel";
 
 const timestamp = "2026-01-01T00:00:00Z";
 
@@ -58,6 +58,58 @@ describe("buildItemsFromEntries", () => {
       ]);
     }
   });
+
+  it("merges consecutive assistant messages of one turn into a single item", () => {
+    const entries: SessionEntry[] = [
+      {
+        type: "message",
+        id: "user",
+        parentId: null,
+        timestamp,
+        message: { role: "user", content: "question" },
+      },
+      {
+        type: "message",
+        id: "a1",
+        parentId: "user",
+        timestamp,
+        message: {
+          role: "assistant",
+          content: [
+            { type: "text", text: "let me check" },
+            { type: "toolCall", id: "call-1", name: "read", arguments: { path: "a.txt" } },
+          ],
+        },
+      },
+      {
+        type: "message",
+        id: "result",
+        parentId: "a1",
+        timestamp,
+        message: { role: "toolResult", toolCallId: "call-1", content: "file body" },
+      },
+      {
+        type: "message",
+        id: "a2",
+        parentId: "result",
+        timestamp,
+        message: { role: "assistant", content: [{ type: "text", text: "the answer" }] },
+      },
+    ];
+
+    const items = buildItemsFromEntries(entries, "a2");
+    expect(items.map((item) => item.kind)).toEqual(["user", "assistant"]);
+    const assistant = items[1];
+    expect(assistant).toMatchObject({ kind: "assistant", text: "the answer" });
+    if (assistant.kind === "assistant") {
+      // The intermediate text becomes part of the process log, at its
+      // original position before the tool call.
+      expect(assistant.exec).toEqual([
+        { type: "think", text: "let me check" },
+        { type: "tool", tool: expect.objectContaining({ id: "call-1", output: "file body" }) },
+      ]);
+    }
+  });
 });
 
 describe("applyEvent", () => {
@@ -73,7 +125,7 @@ describe("applyEvent", () => {
     expect(result.items[0]).toMatchObject({ text: "ab", streaming: true });
   });
 
-  it("uses the authoritative final assistant message", () => {
+  it("keeps the turn open after message_end and settles via finalizeTurn", () => {
     const partial = applyEvent([], null, {
       type: "message_update",
       assistantMessageEvent: { type: "text_delta", delta: "partial" },
@@ -82,8 +134,43 @@ describe("applyEvent", () => {
       type: "message_end",
       message: { role: "assistant", content: [{ type: "text", text: "final" }] },
     });
-    expect(final.streamingAssistantId).toBeNull();
-    expect(final.items[0]).toMatchObject({ kind: "assistant", text: "final", streaming: false });
+    // A tool-call loop may continue, so message_end alone must not close it.
+    expect(final.streamingAssistantId).not.toBeNull();
+    expect(final.items[0]).toMatchObject({ kind: "assistant", text: "final", streaming: true });
+
+    const settled = finalizeTurn(final.items, final.streamingAssistantId);
+    expect(settled.streamingAssistantId).toBeNull();
+    expect(settled.items[0]).toMatchObject({ text: "final", streaming: false });
+  });
+
+  it("folds intermediate text into the log when the turn continues", () => {
+    let result = applyEvent([], null, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "let me check" },
+          { type: "toolCall", id: "c1", name: "read", arguments: { path: "a.txt" } },
+        ],
+      },
+    });
+    result = applyEvent(result.items, result.streamingAssistantId, {
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+    result = applyEvent(result.items, result.streamingAssistantId, {
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text: "the answer" }] },
+    });
+    expect(result.items).toHaveLength(1);
+    const item = result.items[0];
+    expect(item).toMatchObject({ kind: "assistant", text: "the answer" });
+    if (item.kind === "assistant") {
+      expect(item.exec).toEqual([
+        { type: "think", text: "let me check" },
+        { type: "tool", tool: expect.objectContaining({ id: "c1", name: "read" }) },
+      ]);
+    }
   });
 
   it("interleaves thinking segments and tool calls while streaming", () => {

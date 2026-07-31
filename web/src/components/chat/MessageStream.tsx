@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import type { AssistantItem, ChatItem, ToolItem } from "../../stores/chatModel";
-import { CheckIcon, ChevronDownIcon, CloseIcon, PodiumIcon } from "../Icons";
+import type { AssistantItem, ChatItem } from "../../stores/chatModel";
+import { ChevronDownIcon, PodiumIcon } from "../Icons";
 import { Markdown } from "./Markdown";
-import { DiffView, summarizeArgs, ToolCard } from "./ToolCard";
+import { summarizeArgs, ToolCard, ToolLine } from "./ToolCard";
 
-// One thinking segment: collapsed to a single preview line by default, like
-// pi's CLI which hides thinking behind a one-line italic label. Clicking the
-// line expands it to a scrollable view of roughly eight lines.
+// One thinking segment, sharing the exact grid of ToolLine (preview · meta +
+// chevron). Collapsed to a single preview line by default, like pi's CLI;
+// clicking expands it to a scrollable view.
 function ThinkingSegment({ text, streaming }: { text: string; streaming: boolean }) {
   const [open, setOpen] = useState(false);
   const scrollRef = useRef<HTMLPreElement>(null);
@@ -21,12 +21,22 @@ function ThinkingSegment({ text, streaming }: { text: string; streaming: boolean
     }
   }, [text, open, streaming]);
 
-  if (!expandable) {
-    return (
-      <div className="exec-line think-line" title={text}>
+  const row = (
+    <>
+      <span className="exec-main">
         <span className="exec-line-text">{preview}</span>
-      </div>
-    );
+      </span>
+      {expandable && (
+        <span className="exec-tail">
+          {lines.length > 1 && <span className="exec-meta">{lines.length} 行</span>}
+          <ChevronDownIcon className="icon exec-chevron" style={{ transform: open ? "none" : "rotate(-90deg)" }} />
+        </span>
+      )}
+    </>
+  );
+
+  if (!expandable) {
+    return <div className="exec-line think-line" title={text}>{row}</div>;
   }
 
   return (
@@ -38,11 +48,10 @@ function ThinkingSegment({ text, streaming }: { text: string; streaming: boolean
         aria-expanded={open}
         title={text}
       >
-        <ChevronDownIcon className="icon exec-chevron" style={{ transform: open ? "none" : "rotate(-90deg)" }} />
-        <span className="exec-line-text">{preview}</span>
+        {row}
       </button>
       {open && (
-        <pre ref={scrollRef} className="think-full">
+        <pre ref={scrollRef} className="exec-body think">
           {text}
         </pre>
       )}
@@ -50,66 +59,8 @@ function ThinkingSegment({ text, streaming }: { text: string; streaming: boolean
   );
 }
 
-// One tool call: a single line by default. Clicking it expands the output or
-// diff below (scrollable); while the tool is still running the expanded view
-// follows the live output.
-function ToolLine({ tool, streaming }: { tool: ToolItem; streaming: boolean }) {
-  const [open, setOpen] = useState(false);
-  const scrollRef = useRef<HTMLPreElement>(null);
-  const subtitle = summarizeArgs(tool.name, tool.args);
-  const hasBody = Boolean(tool.output || tool.diff);
-
-  useEffect(() => {
-    if (open && streaming && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [tool.output, tool.diff, open, streaming]);
-
-  const body = tool.diff ? (
-    <DiffView diff={tool.diff} />
-  ) : tool.output ? (
-    <pre ref={scrollRef} className={`exec-tool-output${tool.isError ? " error" : ""}`}>{tool.output}</pre>
-  ) : null;
-
-  const line = (
-    <>
-      {tool.running ? (
-        <span className="tool-spinner" />
-      ) : tool.isError ? (
-        <CloseIcon className="icon exec-tool-state error" />
-      ) : (
-        <CheckIcon className="icon exec-tool-state" />
-      )}
-      <span className="exec-tool-name">{tool.name}</span>
-      {subtitle && <span className="exec-tool-detail">{subtitle}</span>}
-      {hasBody && (
-        <ChevronDownIcon className="icon exec-chevron" style={{ transform: open ? "none" : "rotate(-90deg)" }} />
-      )}
-    </>
-  );
-
-  return (
-    <div className={`tool-entry${open ? " open" : ""}`}>
-      {hasBody ? (
-        <button
-          type="button"
-          className="exec-line tool-line tool-toggle"
-          onClick={() => setOpen((value) => !value)}
-          aria-expanded={open}
-          title={subtitle}
-        >
-          {line}
-        </button>
-      ) : (
-        <div className="exec-line tool-line" title={subtitle}>{line}</div>
-      )}
-      {open && body}
-    </div>
-  );
-}
-
 // The execution log renders a turn's thinking segments and tool calls as one
-// compact small-font line each, in the order they happened.
+// compact line each, in the order they happened.
 function ExecutionLog({ item }: { item: AssistantItem }) {
   if (item.exec.length === 0) return null;
 
@@ -126,11 +77,74 @@ function ExecutionLog({ item }: { item: AssistantItem }) {
   );
 }
 
+function formatDuration(ms: number): string {
+  const total = Math.max(1, Math.round(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+// The most recent exec entry, shown inline in a collapsed header while the
+// turn is still streaming so live activity stays visible.
+function latestActivity(item: AssistantItem): string {
+  const last = item.exec[item.exec.length - 1];
+  if (!last) return "";
+  if (last.type === "think") {
+    const lines = last.text.split("\n").map((line) => line.trim()).filter(Boolean);
+    return lines[lines.length - 1] ?? "";
+  }
+  const args = summarizeArgs(last.tool.name, last.tool.args);
+  return args ? `${last.tool.name} · ${args}` : last.tool.name;
+}
+
+// TurnProcess tucks a turn's whole execution log (thinking + tool calls)
+// behind a collapsed header: elapsed time on top, a rule after it, and the
+// final answer below. Expanding reveals the log between header and answer.
+function TurnProcess({ item }: { item: AssistantItem }) {
+  const [open, setOpen] = useState(false);
+  // Re-render every second while streaming so the elapsed time ticks.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!item.streaming) return;
+    const timer = setInterval(() => setTick((value) => value + 1), 1000);
+    return () => clearInterval(timer);
+  }, [item.streaming]);
+
+  if (item.exec.length === 0) return null;
+
+  const end = item.streaming ? Date.now() : item.timestamp;
+  const elapsed = item.startedAt && end && end > item.startedAt ? end - item.startedAt : undefined;
+  const duration = elapsed && elapsed >= 1000 && elapsed < 86_400_000 ? formatDuration(elapsed) : "";
+  const activity = item.streaming && !open ? latestActivity(item) : "";
+
+  return (
+    <div className={`turn-process${open ? " open" : ""}`}>
+      <button
+        type="button"
+        className="turn-header"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+      >
+        <span className="turn-label">
+          {item.streaming ? "处理中" : "已处理"}
+          {duration && ` ${duration}`}
+        </span>
+        <ChevronDownIcon className="icon exec-chevron" style={{ transform: open ? "none" : "rotate(-90deg)" }} />
+        {activity && <span className="turn-activity">{activity}</span>}
+      </button>
+      {open && <ExecutionLog item={item} />}
+    </div>
+  );
+}
+
 function AssistantMessage({ item }: { item: AssistantItem }) {
   return (
     <article className="message assistant-message">
+      <TurnProcess item={item} />
       <div className="assistant-copy">
-        <ExecutionLog item={item} />
         {item.text ? <Markdown text={item.text} /> : item.streaming && <span className="streaming-caret" />}
         {item.error && <p className="message-error">{item.error}</p>}
       </div>

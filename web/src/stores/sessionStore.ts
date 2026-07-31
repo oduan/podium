@@ -4,7 +4,7 @@
 import { create } from "zustand";
 import { api } from "../api/client";
 import { SessionSocket, type WsStatus } from "../api/socket";
-import { applyEvent, buildItemsFromEntries, type ChatItem } from "./chatModel";
+import { applyEvent, buildItemsFromEntries, finalizeTurn, type ChatItem } from "./chatModel";
 import type { PiEvent, PromptImage, SessionState, SessionStats } from "../types";
 
 export interface ExtensionUiRequest {
@@ -339,11 +339,16 @@ function handleEvent(
 	case "agent_end":
 	  // A retry, compaction retry, or queued continuation may still follow.
 	  return;
-    case "agent_settled":
-      set({ isStreaming: false });
+    case "agent_settled": {
+      // Apply any batched chat events first, then settle the open turn so the
+      // process header stops ticking before durable history replaces it.
+      flushPendingChatEvents();
+      const settled = finalizeTurn(get().items, get().streamingAssistantId);
+      set({ isStreaming: false, items: settled.items, streamingAssistantId: settled.streamingAssistantId });
       void get().refreshStats();
       void syncHistory(sessionId, generation, set, get);
       return;
+    }
     case "queue_update":
       set({
         queue: {
