@@ -76,7 +76,8 @@ func run() error {
 	}
 
 	go func() {
-		log.Printf("podium listening on %s (pi binary: %s)", accessURLs(cfg), cfg.PiBinary)
+		log.Printf("podium listening on %s (pi binary: %s)", addr, cfg.PiBinary)
+		printAccessURLs(cfg)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("http server: %v", err)
 		}
@@ -94,10 +95,21 @@ func run() error {
 	return nil
 }
 
+// printAccessURLs prints each token-bearing access URL on its own line so
+// terminal output stays readable and the URLs are easy to click.
+func printAccessURLs(cfg *config.Config) {
+	fmt.Println()
+	fmt.Println("Access Podium (each URL already includes the token):")
+	for _, u := range accessURLs(cfg) {
+		fmt.Printf("  %s\n", u)
+	}
+	fmt.Println("Press Ctrl+C to stop.")
+}
+
 // accessURLs returns the token-bearing URLs printed at startup.
 // Loopback is always listed; LAN addresses are included when listening
 // on all interfaces so the printed URLs are usable from other machines.
-func accessURLs(cfg *config.Config) string {
+func accessURLs(cfg *config.Config) []string {
 	hosts := []string{"localhost"}
 	if cfg.Host == "0.0.0.0" || cfg.Host == "::" || cfg.Host == "" {
 		hosts = append(hosts, lanIPs()...)
@@ -106,7 +118,7 @@ func accessURLs(cfg *config.Config) string {
 	for _, h := range hosts {
 		urls = append(urls, fmt.Sprintf("http://%s:%d/?token=%s", h, cfg.Port, cfg.Token))
 	}
-	return strings.Join(urls, "  ")
+	return urls
 }
 
 // lanIPs returns up to three non-loopback, non-link-local IPv4 addresses.
